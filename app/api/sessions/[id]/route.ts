@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { existsSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "fs";
-import { dirname, join } from "path";
+import { existsSync, readFileSync, statSync, unlinkSync, writeFileSync } from "fs";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "path";
 import {
   attachSessionProjectInfo,
   listAllSessions,
@@ -13,6 +13,7 @@ import {
   invalidateSessionManagerCache,
   buildSessionContext,
   readSessionHeader,
+  getAgentDir,
 } from "@/lib/session-reader";
 import { sessionPathKey } from "@/lib/session-path";
 import { abortSubagent, getRpcSession, getRpcSessionInfos } from "@/lib/rpc-manager";
@@ -25,6 +26,17 @@ import type { SessionEntry } from "@/lib/types";
 import { readSubagentRun, readSubagentSessionResources, SUBAGENT_META_TYPE } from "@/lib/subagents";
 import { readSessionToolSelection } from "@/lib/session-tool-selection";
 import { jsonResponse } from "@/lib/json-response";
+import { listSessionFiles } from "@/lib/session-list-scanner";
+
+/** The tree a session's siblings live in: the whole sessions dir when the file
+ * is inside it, otherwise the file's own directory. */
+function sessionDiscoveryRoot(filePath: string): string {
+  const sessionsDir = resolve(join(getAgentDir(), "sessions"));
+  const relativePath = relative(sessionsDir, resolve(filePath));
+  return relativePath && relativePath !== ".." && !relativePath.startsWith(`..${sep}`) && !isAbsolute(relativePath)
+    ? sessionsDir
+    : dirname(filePath);
+}
 
 export async function GET(
   req: Request,
@@ -227,7 +239,6 @@ export async function DELETE(
     }
 
     const targetPathKey = sessionPathKey(filePath);
-    const dir = dirname(filePath);
     // Deleting a session also deletes every persisted or live subagent below it.
     const sessions = mergeSessionLists(
       await listAllSessions({ force: true }),
@@ -243,8 +254,7 @@ export async function DELETE(
     const sessionPaths = new Map(sessions.map((session) => [session.id, session.path]));
     // Include local files even when the global catalogue is stale or incomplete.
     try {
-      for (const file of readdirSync(dir).filter((name) => name.endsWith(".jsonl"))) {
-        const childPath = join(dir, file);
+      for (const childPath of await listSessionFiles(sessionDiscoveryRoot(filePath))) {
         if (sessionPathKey(childPath) === targetPathKey) continue;
         try {
           const lines = readFileSync(childPath, "utf8").split("\n");
@@ -289,13 +299,12 @@ export async function DELETE(
     const deletedPathKeys = new Set([...deletedPaths.values()].map((path) => sessionPathKey(path)));
 
     // Re-attach all direct children to this session's parent (cascade re-parent)
-    // Scan sibling files in the same directory
+    // Scan the complete configured session tree so launcher-specific nested
+    // session directories are included.
     try {
-      const files = readdirSync(dir).filter(
-        (file) => file.endsWith(".jsonl") && sessionPathKey(join(dir, file)) !== targetPathKey,
-      );
-      for (const file of files) {
-        const childPath = join(dir, file);
+      const files = (await listSessionFiles(sessionDiscoveryRoot(filePath)))
+        .filter((childPath) => sessionPathKey(childPath) !== targetPathKey);
+      for (const childPath of files) {
         if (deletedPathKeys.has(sessionPathKey(childPath))) continue;
         try {
           const content = readFileSync(childPath, "utf8");

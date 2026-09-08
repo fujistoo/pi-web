@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
@@ -190,8 +190,10 @@ test("deleting a session removes all persisted subagent descendants", async (t) 
   const dir = await mkdtemp(join(tmpdir(), "pi-web-delete-reparent-"));
   const grandparentPath = join(dir, "grandparent.jsonl");
   const parentPath = join(dir, "parent.jsonl");
-  const childPath = join(dir, "child.jsonl");
+  // Nested so the recursive discovery is what finds the child.
+  const childPath = join(dir, "nested", "child.jsonl");
   const grandchildPath = join(dir, "grandchild.jsonl");
+  await mkdir(join(dir, "nested"), { recursive: true });
   const parentId = "delete-reparent-parent";
   const childId = "delete-reparent-child";
   const grandchildId = "delete-reparent-grandchild";
