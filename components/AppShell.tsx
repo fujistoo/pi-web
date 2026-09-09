@@ -988,6 +988,15 @@ export function AppShell() {
     router.replace(`?session=${encodeURIComponent(newSessionId)}`, { scroll: false });
   }, [invalidateWorkspaceRestore, router, hydrateSelectedSession]);
 
+  const handleBranchInNewChat = useCallback(async (sourceSessionId: string, sourceEntryId: string) => {
+    const result = await sendAgentCommand<{ newSessionId?: string }>(sourceSessionId, {
+      type: "fork_branch",
+      entryId: sourceEntryId,
+    });
+    if (!result?.newSessionId) throw new Error(translate("chat.quoteForkFailed"));
+    handleSessionForked(result.newSessionId);
+  }, [handleSessionForked, translate]);
+
   const handleAskInNewChat = useCallback(async (
     prompt: string,
     sourceSessionId: string,
@@ -1160,7 +1169,7 @@ export function AppShell() {
 
   const activeFileTab = fileTabs.find((tab) => tab.id === activeFileTabId) ?? null;
   const activeCwdName = activeCwd ? getFileName(activeCwd) || activeCwd : null;
-  const windowTitle = activeCwdName ? `${activeCwdName} - Pi Web` : "Pi Web";
+  const windowTitle = activeCwdName ? `${activeCwdName} - Seb` : "Seb";
 
   useEffect(() => {
     const syncWindowTitle = () => {
@@ -2332,6 +2341,7 @@ export function AppShell() {
               onOpenFile={handleOpenLinkedFile}
               onOpenSession={handleOpenSession}
               onAskInNewChat={handleAskInNewChat}
+              onBranchInNewChat={handleBranchInNewChat}
               quoteSelectionEnabled={quoteSelectionEnabled}
               initialPrompt={pendingQuotePrompt?.sessionId === selectedSession?.id ? pendingQuotePrompt?.text : undefined}
               onInitialPromptConsumed={() => setPendingQuotePrompt(null)}

@@ -1674,27 +1674,25 @@ function TextFileViewer({
               </button>
             )}
             {effectiveDisplayMode === "source" && (
-              <>
-                <button
-                  type="button"
-                  onClick={toggleWrapLines}
-                  title={wrapLines ? t("i18n.disableWrap") : t("i18n.enableWrap")}
-                  aria-label={wrapLines ? t("i18n.disableWrap") : t("i18n.enableWrap")}
-                  aria-pressed={wrapLines}
-                  className="file-viewer-icon-button"
-                  style={{
-                    background: wrapLines ? "var(--bg-selected)" : "transparent",
-                    color: wrapLines ? "var(--text)" : "var(--text-muted)",
-                  }}
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M3 6h18" />
-                    <path d="M3 12h15a3 3 0 1 1 0 6h-4" />
-                    <path d="m16 16-2 2 2 2" />
-                    <path d="M3 18h7" />
-                  </svg>
-                </button>
-              </>
+              <button
+                type="button"
+                onClick={toggleWrapLines}
+                title={wrapLines ? t("i18n.disableWrap") : t("i18n.enableWrap")}
+                aria-label={wrapLines ? t("i18n.disableWrap") : t("i18n.enableWrap")}
+                aria-pressed={wrapLines}
+                className="file-viewer-icon-button"
+                style={{
+                  background: wrapLines ? "var(--bg-selected)" : "transparent",
+                  color: wrapLines ? "var(--text)" : "var(--text-muted)",
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M3 6h18" />
+                  <path d="M3 12h15a3 3 0 1 1 0 6h-4" />
+                  <path d="m16 16-2 2 2 2" />
+                  <path d="M3 18h7" />
+                </svg>
+              </button>
             )}
           </div>
 

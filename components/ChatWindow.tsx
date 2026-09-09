@@ -58,6 +58,7 @@ interface Props {
   onOpenFile?: (filePath: string, page?: number) => void;
   onOpenSession?: (sessionId: string) => void;
   onAskInNewChat?: (prompt: string, sourceSessionId: string, sourceEntryId: string) => Promise<void>;
+  onBranchInNewChat?: (sourceSessionId: string, sourceEntryId: string) => Promise<void>;
   quoteSelectionEnabled?: boolean;
   initialPrompt?: string;
   onInitialPromptConsumed?: () => void;
@@ -241,7 +242,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, defaultExpanded = fa
   );
 }
 
-export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, onOpenSession, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
+export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, onOpenSession, onAskInNewChat, onBranchInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const completionNotificationsEnabled = session?.relation?.kind !== "subagent";
@@ -308,6 +309,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   } | null>(null);
   const [quoteInputOpen, setQuoteInputOpen] = useState(false);
   const [quoteSubmitting, setQuoteSubmitting] = useState(false);
+  const [branchingEntryId, setBranchingEntryId] = useState<string | null>(null);
   const [quoteError, setQuoteError] = useState<string | null>(null);
   const quotePopoverRef = useRef<HTMLDivElement | null>(null);
   const quoteChatInputRef = useRef<ChatInputHandle | null>(null);
@@ -419,6 +421,33 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     window.getSelection()?.removeAllRanges();
     closeQuotedSelection();
   }, [chatInputRef, quotedSelection, closeQuotedSelection, t]);
+
+  const branchMessageInNewChat = useCallback((entryId: string) => {
+    const sourceSessionId = sessionIdRef.current ?? session?.id;
+    if (branchingEntryId || !sourceSessionId || !onBranchInNewChat) return;
+    setBranchingEntryId(entryId);
+    void onBranchInNewChat(sourceSessionId, entryId)
+      .catch((error) => {
+        console.error("Branch failed:", error);
+        setQuoteError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => setBranchingEntryId(null));
+  }, [branchingEntryId, onBranchInNewChat, session?.id, sessionIdRef]);
+
+  const branchSelectionInNewChat = useCallback(async () => {
+    const sourceSessionId = sessionIdRef.current ?? session?.id;
+    if (quoteSubmitting || !quotedSelection?.sourceEntryId || !sourceSessionId || !onBranchInNewChat) return;
+    setQuoteSubmitting(true);
+    setQuoteError(null);
+    try {
+      await onBranchInNewChat(sourceSessionId, quotedSelection.sourceEntryId);
+      closeQuotedSelection();
+    } catch (error) {
+      setQuoteError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setQuoteSubmitting(false);
+    }
+  }, [onBranchInNewChat, quotedSelection, quoteSubmitting, session?.id, sessionIdRef, closeQuotedSelection]);
 
   const askSelectionInNewChat = useCallback(async (prompt: string) => {
     const sourceSessionId = sessionIdRef.current ?? session?.id;
@@ -1092,7 +1121,8 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                     entryId={entryIds[idx]}
                     searchBlock={entryIds[idx] === pendingSearchScroll?.entryId ? searchBlock : undefined}
                     onFork={sessionBusy || isNew ? undefined : handleFork}
-                    forking={forkingEntryId === entryIds[idx]}
+                    onBranchInNewChat={sessionBusy || isNew ? undefined : branchMessageInNewChat}
+                    forking={forkingEntryId === entryIds[idx] || branchingEntryId === entryIds[idx]}
                     onNavigate={sessionBusy ? undefined : handleNavigate}
                     onEditContent={handleEditContent}
                     showTimestamp={showTimestamp}
@@ -1334,6 +1364,23 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
             <span aria-hidden="true" style={{ fontSize: 15 }}>@</span>
             <span>{t("chat.askInCurrent")}</span>
           </button>
+          {onBranchInNewChat && quotedSelection.sourceEntryId && !sessionBusy && (
+            <button
+              type="button"
+              className="file-viewer-icon-button"
+              title={t("chat.branchInNewChat")}
+              aria-label={t("chat.branchInNewChat")}
+              disabled={quoteSubmitting}
+              onPointerDown={(event) => event.preventDefault()}
+              onClick={() => { void branchSelectionInNewChat(); window.getSelection()?.removeAllRanges(); }}
+              style={{ width: "auto", height: 35, flex: "0 0 auto", gap: 5, padding: "0 10px", border: "none", fontSize: 12, fontWeight: 500 }}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M6 3v12M18 9a9 9 0 0 1-9 9" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="18" r="3" />
+              </svg>
+              <span>{t("chat.branchInNewChat")}</span>
+            </button>
+          )}
           {onAskInNewChat && quotedSelection.sourceEntryId && !sessionBusy && (
             <button
               type="button"
