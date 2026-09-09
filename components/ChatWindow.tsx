@@ -58,7 +58,7 @@ interface Props {
   onOpenFile?: (filePath: string, page?: number) => void;
   onOpenSession?: (sessionId: string) => void;
   onAskInNewChat?: (prompt: string, sourceSessionId: string, sourceEntryId: string) => Promise<void>;
-  onBranchInNewChat?: (sourceSessionId: string, sourceEntryId: string) => Promise<void>;
+  onBranchInNewChat?: (sourceSessionId: string, sourceEntryId: string, initialPrompt?: string) => Promise<void>;
   quoteSelectionEnabled?: boolean;
   initialPrompt?: string;
   onInitialPromptConsumed?: () => void;
@@ -440,14 +440,22 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     setQuoteSubmitting(true);
     setQuoteError(null);
     try {
-      await onBranchInNewChat(sourceSessionId, quotedSelection.sourceEntryId);
+      await onBranchInNewChat(
+        sourceSessionId,
+        quotedSelection.sourceEntryId,
+        buildQuotedSelection(
+          quotedSelection.text,
+          t("chat.quoteIntro"),
+          t("chat.quoteQuestion"),
+        ),
+      );
       closeQuotedSelection();
     } catch (error) {
       setQuoteError(error instanceof Error ? error.message : String(error));
     } finally {
       setQuoteSubmitting(false);
     }
-  }, [onBranchInNewChat, quotedSelection, quoteSubmitting, session?.id, sessionIdRef, closeQuotedSelection]);
+  }, [onBranchInNewChat, quotedSelection, quoteSubmitting, session?.id, sessionIdRef, closeQuotedSelection, t]);
 
   const askSelectionInNewChat = useCallback(async (prompt: string) => {
     const sourceSessionId = sessionIdRef.current ?? session?.id;
