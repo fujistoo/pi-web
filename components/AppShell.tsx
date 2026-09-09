@@ -17,6 +17,7 @@ import { ToolDefinitionsPanel } from "./ToolDefinitionsPanel";
 import { AgentSessionPanel } from "./AgentSessionPanel";
 import { TerminalPanel } from "./TerminalPanel";
 import { newTerminalTab, restoreTerminalTabs, TERMINAL_TABS_KEY, type TerminalTab } from "./terminal-tab-state";
+import { useDisplayName } from "@/hooks/useDisplayName";
 import { useTheme } from "@/hooks/useTheme";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile, useIsNarrowMobile } from "@/hooks/useIsMobile";
@@ -79,6 +80,7 @@ function parkedNewSessionDraftKey(cwd: string): string {
 }
 
 export function AppShell() {
+  const [displayName] = useDisplayName();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [initialNavigation, setInitialNavigation] = useState(() => getInitialNavigation(searchParams));
@@ -1187,7 +1189,7 @@ export function AppShell() {
 
   const activeFileTab = fileTabs.find((tab) => tab.id === activeFileTabId) ?? null;
   const activeCwdName = activeCwd ? getFileName(activeCwd) || activeCwd : null;
-  const windowTitle = activeCwdName ? `${activeCwdName} - Seb` : "Seb";
+  const windowTitle = activeCwdName ? `${activeCwdName} - ${displayName}` : displayName;
 
   useEffect(() => {
     const syncWindowTitle = () => {

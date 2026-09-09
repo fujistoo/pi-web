@@ -1117,7 +1117,19 @@
   flex-wrap: wrap;
 }
 
-.settings-update-control input {
+.settings-display-name-section {
+  margin-top: 18px;
+}
+
+.settings-display-name-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 520px;
+}
+
+.settings-update-control input,
+.settings-display-name-control input {
   flex: 1;
   min-width: 0;
   flex-basis: 280px;
@@ -1131,13 +1143,15 @@
   font-size: 12px;
 }
 
-.settings-update-control input:focus-visible {
+.settings-update-control input:focus-visible,
+.settings-display-name-control input:focus-visible {
   border-color: var(--accent);
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
 
-.settings-update-control input::placeholder {
+.settings-update-control input::placeholder,
+.settings-display-name-control input::placeholder {
   color: var(--text-dim);
 }
 
