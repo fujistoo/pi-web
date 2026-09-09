@@ -164,6 +164,7 @@ interface Props {
   onBackgroundTaskDone?: () => void;
   onRunningSessionIdsChange?: (ids: Set<string>) => void;
   onSessionsChange?: (sessions: SessionInfo[]) => void;
+  prioritizedSessionId?: string | null;
 }
 
 interface WorktreeEntry {
@@ -415,7 +416,7 @@ function PiWebTitle() {
   );
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
+export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange, prioritizedSessionId }: Props) {
   const { t } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   // Tracked in a ref only: the version is compared against the polled value to
@@ -1108,6 +1109,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       : null);
 
   const sessionFamilies = listSessionFamilies(filteredSessions);
+  const prioritizedFamilyIndex = prioritizedSessionId
+    ? sessionFamilies.findIndex((family) => family.root.id === prioritizedSessionId)
+    : -1;
+  if (prioritizedFamilyIndex > 0) {
+    const [prioritizedFamily] = sessionFamilies.splice(prioritizedFamilyIndex, 1);
+    sessionFamilies.unshift(prioritizedFamily);
+  }
   const sessionRows = getSessionRows(sessionFamilies, collapsedFamilyIds);
   const focusedRowIndex = getFocusedSessionRowIndex(sessionRows, focusedSessionId);
 

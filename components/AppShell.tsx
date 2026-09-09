@@ -163,6 +163,7 @@ export function AppShell() {
   );
   const [initialCwdError, setInitialCwdError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [prioritizedSessionId, setPrioritizedSessionId] = useState<string | null>(null);
   const [sessionKey, setSessionKey] = useState(0);
   const sessionScrollPositionsRef = useRef(new Map<string, ChatScrollPosition>());
   const handleSessionScrollPositionChange = useCallback((sessionId: string, position: ChatScrollPosition) => {
@@ -727,6 +728,7 @@ export function AppShell() {
   }, [activeCwd, activeFileTabId, invalidateWorkspaceRestore, newSessionCwd, router, selectedSession, restoreWorkspaceContext]);
 
   const handleSelectSession = useCallback((session: SessionInfo, isRestore = false, entryId?: string, blockIndex?: number) => {
+    setPrioritizedSessionId(null);
     setSearchTarget(entryId ? { sessionId: session.id, entryId, blockIndex } : null);
     invalidateWorkspaceRestore();
     const activeDraftKey = activeNewSessionDraftKeyRef.current;
@@ -973,6 +975,7 @@ export function AppShell() {
   const handleSessionForked = useCallback((newSessionId: string) => {
     invalidateWorkspaceRestore();
     activeNewSessionDraftKeyRef.current = null;
+    setPrioritizedSessionId(newSessionId);
     setRefreshKey((k) => k + 1);
     setSessionKey((k) => k + 1);
     setNewSessionCwd(null);
@@ -1192,6 +1195,7 @@ export function AppShell() {
         onBackgroundTaskDone={handleBackgroundTaskDone}
         onRunningSessionIdsChange={handleRunningSessionIdsChange}
         onSessionsChange={handleSessionsChange}
+        prioritizedSessionId={prioritizedSessionId}
       />
       <div style={{ padding: "8px", flexShrink: 0, display: "flex", justifyContent: "space-between", gap: 4 }}>
         {([
