@@ -1115,7 +1115,6 @@
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  max-width: 720px;
 }
 
 .settings-update-control input {
