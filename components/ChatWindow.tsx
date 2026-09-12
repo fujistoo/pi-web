@@ -22,6 +22,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import type { AppUpdateResponse } from "@/lib/api-types";
 import type { ToolEntry } from "@/lib/tool-presets";
+import { encodeFilePathForApi } from "@/lib/file-paths";
 import { findChatScrollAnchor, type ChatScrollPosition } from "@/lib/chat-scroll-position";
 import {
   captureScrollDistance,
@@ -749,9 +750,32 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   }, [ctxKey, onContextUsageChange]);
   useEffect(() => () => { onContextUsageChange?.(null); }, [onContextUsageChange]);
 
-  const onDrop = useCallback((files: File[]) => {
-    chatInputRef?.current?.addImages(files);
-  }, [chatInputRef]);
+  const onDrop = useCallback(async (files: File[]) => {
+    const images = files.filter((file) => file.type.startsWith("image/"));
+    const documents = files.filter((file) => !file.type.startsWith("image/"));
+    if (images.length > 0) chatInputRef?.current?.addImages(images);
+    if (documents.length === 0) return;
+
+    const cwd = session?.cwd ?? newSessionCwd;
+    if (!cwd) {
+      addNotice({ type: "error", message: "Open a project before dropping documents" });
+      return;
+    }
+    const formData = new FormData();
+    documents.forEach((file) => formData.append("files", file, file.name));
+    try {
+      const response = await fetch(`/api/files/${encodeFilePathForApi(cwd)}?type=upload&conflict=overwrite`, {
+        method: "POST",
+        body: formData,
+      });
+      const result = await response.json() as { uploaded?: string[]; error?: string };
+      if (!response.ok) throw new Error(result.error ?? "Document upload failed");
+      const mentions = (result.uploaded ?? []).map((name) => /[^\w./-]/.test(name) ? `@"${name.replaceAll('"', '\\\"')}" ` : `@${name} `);
+      if (mentions.length > 0) chatInputRef?.current?.insertText(mentions.join(""));
+    } catch (error) {
+      addNotice({ type: "error", message: error instanceof Error ? error.message : String(error) });
+    }
+  }, [addNotice, chatInputRef, newSessionCwd, session?.cwd]);
 
   const { isDragOver, handleDragEnter, handleDragOver, handleDragLeave, handleDrop } = useDragDrop(onDrop);
 
