@@ -1,0 +1,101 @@
+version: 1
+feature: SESSION-TURN-TIMING
+items:
+  - summary: >-
+      Added user-entry IDs to persisted task timing and rendered each completed turn's active duration in
+      ProcessDetailsGroup.
+    requirements:
+      - R1
+      - R2
+      - R3
+      - R4
+    files:
+      - lib/session-timing.ts
+      - lib/session-timing.test.mjs
+      - components/ChatWindow.tsx
+      - lib/i18n/messages/en.ts
+      - lib/i18n/messages/zh-CN.ts
+      - lib/i18n/messages/zh-TW.ts
+    verification:
+      - TypeScript passed
+      - ESLint passed
+      - 'Full npm test passed: 1054 tests'
+    id: CHG-001
+    recorded_at: '2026-09-12T13:13:29.785Z'
+    version: 1
+    feature: SESSION-TURN-TIMING
+  - summary: >-
+      Live process details can be collapsed during an active turn, and the visible turn duration uses the existing
+      shared one-second clock rather than a per-group timer.
+    source: User request in coding session
+    impact: >-
+      ChatWindow groups the active tail like completed turns, keeps the current streaming bubble visible, starts live
+      groups collapsed by default, and computes the header duration from activeTaskStartedAt plus AppShell timingNow.
+      Completed turns retain persisted timing and incomplete completed turns retain their expanded default.
+    files:
+      - components/ChatWindow.tsx
+      - components/AppShell.tsx
+      - components/ChatWindow.process-details.test.mjs
+    id: CHG-002
+    recorded_at: '2026-09-12T14:24:28.387Z'
+    version: 1
+    feature: SESSION-TURN-TIMING
+  - title: Reset process details expansion per session
+    summary: >-
+      Scoped each collapsible process-details group key to the session ID so navigating to another session and back
+      mounts a fresh collapsed group instead of reusing expansion state.
+    artifacts:
+      - components/ChatWindow.tsx
+      - components/ChatWindow.process-details.test.mjs
+    status: implemented
+    id: CHG-003
+    recorded_at: '2026-09-12T15:43:02.496Z'
+    version: 1
+    feature: SESSION-TURN-TIMING
+  - title: Reset live process details on session revisit
+    summary: >-
+      Live process details now use the parent running-session signal and collapse when live state is (re)entered,
+      preventing a session switch from reopening its in-progress tool history. Intentional click expansion remains
+      available while viewing the live turn.
+    artifacts:
+      - components/ChatWindow.tsx
+      - components/ChatWindow.process-details.test.mjs
+    requirements:
+      - R2
+    status: implemented
+    id: CHG-004
+    recorded_at: '2026-09-12T15:48:49.264Z'
+    version: 1
+    feature: SESSION-TURN-TIMING
+  - title: Collapse process details during background tool work
+    summary: >-
+      Included session-level running, bash-running, and compaction signals when identifying the live tail, so revisiting
+      a session with an active bash/tool task keeps its process details collapsed even when the user input is outside
+      the viewport.
+    artifacts:
+      - components/ChatWindow.tsx
+      - components/ChatWindow.process-details.test.mjs
+    requirements:
+      - R2
+    status: implemented
+    id: CHG-005
+    recorded_at: '2026-09-12T16:23:01.798Z'
+    version: 1
+    feature: SESSION-TURN-TIMING
+  - title: Hard-reset process details expansion on session identity changes
+    summary: >-
+      Added an explicit session-identity reset inside ProcessDetailsGroup so manually expanded process details cannot
+      survive a reused React tree during session switching. Groups remain collapsed by default and only the local toggle
+      can expand them.
+    source: Follow-up to user screenshot showing process details expanded after switching sessions
+    impact: UI-only; preserves manual expansion within the active session and keeps active/completed timing display unchanged.
+    artifacts:
+      - components/ChatWindow.tsx
+      - components/ChatWindow.process-details.test.mjs
+    requirements:
+      - R2
+    status: implemented
+    id: CHG-006
+    recorded_at: '2026-09-13T02:51:00.098Z'
+    version: 1
+    feature: SESSION-TURN-TIMING

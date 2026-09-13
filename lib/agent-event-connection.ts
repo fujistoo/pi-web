@@ -8,6 +8,7 @@ export interface AgentEventSourceLike {
 }
 
 export type AgentEventConnectionStatus = "ready_timeout" | "startup_error" | "closed";
+export type AgentEventConnectionLifecycle = "connecting" | "connected" | "disconnected";
 
 export class AgentEventConnectionError extends Error {
   constructor(public readonly status: AgentEventConnectionStatus, message?: string) {
@@ -34,12 +35,13 @@ type Connection = {
 };
 
 export interface AgentEventConnectionOptions {
-  createSource(sessionId: string): AgentEventSourceLike;
+  createSource(sessionId: string, afterSequence?: number): AgentEventSourceLike;
   onEvent(event: AgentEventLike): void;
   shouldMaintain(sessionId: string): boolean;
   readinessTimeoutMs: number;
   reconnectDelayMs: number;
   onUnexpectedError?(error: unknown): void;
+  onLifecycleChange?(lifecycle: AgentEventConnectionLifecycle): void;
 }
 
 const EVENT_SOURCE_OPEN = 1;
@@ -47,6 +49,7 @@ const EVENT_SOURCE_OPEN = 1;
 /** Owns the EventSource, agent-readiness handshake, and passive reconnect. */
 export class AgentEventConnection {
   private current: Connection | null = null;
+  private lastEventSequences = new Map<string, number>();
   private retry: { sessionId: string; timer: ReturnType<typeof setTimeout> } | null = null;
   private retryGeneration = 0;
 
@@ -100,7 +103,8 @@ export class AgentEventConnection {
 
     let source: AgentEventSourceLike;
     try {
-      source = this.options.createSource(sessionId);
+      this.options.onLifecycleChange?.("connecting");
+      source = this.options.createSource(sessionId, this.lastEventSequences.get(sessionId));
     } catch (error) {
       throw new AgentEventConnectionError(
         "closed",
@@ -146,8 +150,14 @@ export class AgentEventConnection {
         return;
       }
 
+      const lastEventId = Number(message.lastEventId);
+      if (Number.isSafeInteger(lastEventId) && lastEventId > (this.lastEventSequences.get(sessionId) ?? 0)) {
+        this.lastEventSequences.set(sessionId, lastEventId);
+      }
+
       if (event.type === "connected") {
         attempt.ready = true;
+        this.options.onLifecycleChange?.("connected");
         attempt.succeed();
         this.stopRetrying();
       } else if (event.type === "startup_error") {
@@ -166,6 +176,7 @@ export class AgentEventConnection {
 
   private fail(connection: Connection, error: AgentEventConnectionError): void {
     if (this.current !== connection) return;
+    this.options.onLifecycleChange?.("disconnected");
     this.discard(connection, error);
     if (error.status === "startup_error") this.stopRetrying();
     else this.scheduleRetry(connection.sessionId);

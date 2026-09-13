@@ -41,6 +41,12 @@ Browser                Next.js Server              AgentSession (in-process)
 **Session browsing** (read-only): reads `.jsonl` files through SDK `SessionManager` helpers and `lib/session-reader.ts` — no AgentSession created.  
 **Sending a message**: `startRpcSession()` in `lib/rpc-manager.ts` creates an AgentSession in-process.
 
+**Live runtime**: API writes and reads live sessions through the detached `bin/pi-web-agent-worker.js` process (`lib/agent-worker-client.ts` ↔ `lib/agent-worker-server.ts`). The worker descriptor is `~/.pi/agent/pi-web-agent-worker.json`; JSONL remains history, while worker SSE snapshots/events are authoritative for active work. macOS service start installs separate Next and worker LaunchAgents; restart only reloads Next, while stop unloads both.
+
+### Product Orchestrator
+
+For requests about reviewing a Jira feature or taking it through design analysis, the main session is the sole PO/PM-facing Product Orchestrator. Follow `.pi/skills/product-design-governance/SKILL.md`, use the existing Jira/Figma/staging MCP tools for evidence, and use `product_state` to persist product-relevant requirements, scenarios, specialist results, deliberations, clarifications, decisions, changes, and readiness checks under `.product/features/<feature>/`. Use the five `.pi/agents/` specialist profiles when built-in subagents are enabled; otherwise run the same roles as independent passes. Pass only the read-only evidence needed by specialists; never give them mutation authority. Keep evidence, inference, recommendation, and accepted decision separate. Escalate only unresolved product policy questions, always with options and a recommendation. Never claim Ready for Dev while the durable readiness gate has blockers.
+
 ---
 
 ## File Map
@@ -185,6 +191,7 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - `/api/skills/install` shells through `npx skills add ... --agent pi`; project installs run with the selected cwd.
 
 ### Built-in subagents
+- Independent delegated work must fan out in one assistant response: emit separate `Agent` calls together so the integrated tool's parallel execution can run them concurrently. Sequence only dependent work; concurrent writers need isolated worktrees/workspaces.
 - The global `builtInEnabled` switch is persisted in `~/.pi/agent/agents/settings.json` and defaults to `false` when the file or field is absent. Malformed settings fail closed; atomic updates preserve unknown fields.
 - The inline built-in extension factory is always present so reloading an existing wrapper can apply setting changes, but it registers no tools while disabled. After changing the switch, the user must explicitly reload the current session.
 - When enabled, only a recognized legacy `pi-subagents` extension that registers any reserved tool (`Agent`, `get_subagent_result`, or `steer_subagent`) is removed. Unrelated extensions remain loaded, and resolved conflict diagnostics are discarded.
@@ -204,6 +211,10 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 ### Completion sound
 - `hooks/useAudio.ts` stores the toggle in `localStorage` as `pi-sound-enabled` and reuses one `AudioContext`.
 - Browser autoplay policy means sound must be unlocked from a user gesture; `ChatInput` calls the unlock hook from interactive controls, and `ChatWindow` plays the tone from `onAgentEnd`.
+
+### Live preview artifacts
+- `LivePreviewPanel` renders output-linked previews as sandboxed HTML/CSS in the existing right panel and polls `/api/previews/[id]`; agents expose references as `/preview/<name>.html`, runtime artifacts live under ignored `.pi/previews/`, closing a tab deletes its artifact, and stale files are garbage-collected after 30 days. When creating a design preview, write the safe HTML/CSS artifact there and include a Markdown link to `/preview/<name>.html` in the output.
+- `lib/preview-artifacts.ts` validates and serves runtime artifacts, deletes legacy archive markers during cleanup, and removes untouched files after 30 days. Do not add generated preview files to `public/` or commit them.
 
 ### Exported session HTML
 - `/api/sessions/[id]/export` delegates to pi's export helper, then patches recursive tree helpers in the generated HTML to iterative versions so very deep linear sessions do not overflow the browser call stack.

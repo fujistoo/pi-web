@@ -29,7 +29,8 @@ function updateFromSource(sourceDir, options = {}) {
     stdio: "inherit",
   }));
 
-  for (const args of [["ci"], ["run", "build"], ["install", "--global", resolvedDir]]) {
+  // The build imports devDependencies; service processes may inherit NODE_ENV=production.
+  for (const args of [["ci", "--include=dev"], ["run", "build"], ["install", "--global", resolvedDir]]) {
     const result = run(args);
     if (result.error) throw result.error;
     if (result.status !== 0) {

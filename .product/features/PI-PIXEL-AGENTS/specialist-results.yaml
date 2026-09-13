@@ -1,0 +1,94 @@
+version: 1
+feature: PI-PIXEL-AGENTS
+items:
+  - specialist: ux
+    status: needs_deliberation
+    summary: >-
+      Asset and reference review completed: Nicolas Lopardo's site has a coherent cinematic FUI language, but the work
+      is a mood/reference source rather than a production asset kit for pi-web. A readable hybrid direction is the
+      strongest candidate to test next; no production visual decision is accepted.
+    findings:
+      - >-
+        Inventory: 142 image elements resolve to 119 unique still images, plus 6 looping MP4/WebM project videos and one
+        unique Rive logo asset (the logo URL is repeated).
+      - >-
+        Identity: three 4:5 black-and-white portraits use severe low-key lighting, split/shadowed faces, and restrained
+        monochrome contrast; useful as a tone reference, not as agent avatars.
+      - >-
+        Credits: 23 portrait-format film/game covers act as a project index and repeat in the page marquee. They are
+        franchise/copyright imagery and should not ship in pi-web.
+      - >-
+        Project stills: 39 anamorphic stills cover Top Gun: Maverick, The Fate of the Furious, Kin, Avatar: The Way of
+        Water, Ad Astra, and Black Adam. The strongest shared motifs are dark fields, thin grids, reticles, telemetry,
+        maps, circular/radial diagrams, clustered detail, and one or two luminous accent colors.
+      - >-
+        Social gallery: 54 Webflow/Instagram stills broaden the reference set with green-phosphor terminal panels,
+        cyan/blue geospatial and medical displays, amber/orange targeting rings, red hazard overlays, purple control
+        consoles, monochrome scans, and layered collage textures. It is a scrapbook of techniques, not one reusable UI
+        system.
+      - >-
+        Motion: the six loops are approximately 4.8–18.8 seconds and use 2.39:1 anamorphic crops. They move from
+        interface-adjacent imagery to narrative film footage: teal military aerospace, blue vehicle/data systems, amber
+        holograms, green clinical biotech, orbital aerospace, and warm fantasy spectacle.
+      - >-
+        Cross-reference: the most transferable principle is function before decoration. Use clusters of meaningful
+        telemetry with deliberate negative space; let modes/state change composition or density, not only color; and
+        make each screen/context legible as a specific system.
+      - >-
+        Adaptation constraint: borrow the language (hierarchy, reticles, grids, signal accents, layered depth) rather
+        than franchise imagery, the Rive logo, microtext, or decorative greeble. pi-web status must remain readable as
+        text/icon/shape and preserve existing tokens, keyboard access, contrast, and reduced-motion behavior.
+    evidence:
+      - >-
+        Primary site and extracted asset inventory: https://www.nicolaslopardo.com/; local capture metadata and contact
+        sheets: /tmp/nicolas-assets/image-metadata.json, /tmp/nicolas-assets/unique-summary.txt,
+        /tmp/nicolas-assets/videos/video-index.txt, /tmp/nicolas-assets/website_logo.riv.
+      - >-
+        Nicolas Lopardo page copy identifies his specialization as interfaces that visualize future systems and lists
+        Top Gun: Maverick, Kin, Avatar: The Way of Water, Ad Astra, Black Adam, and Call of Duty among the work/credits.
+      - >-
+        GMUNK Top Gun case study: https://gmunk.com/Top-Gun-Maverick — describes a military, functionality-focused UI
+        language and an informational visual story for the mission path.
+      - >-
+        GMUNK KIN case study: https://gmunk.com/KIN-Holograms — describes beauty plus functionality, research from
+        real-world scopes/war systems, clustered detail with negative space, and distinct modes with different
+        tones/capabilities.
+      - >-
+        GMUNK Oblivion case study: https://gmunk.com/OBLIVION-GFX — describes functionality/minimalism, a unified
+        palette readable on dark or bright backdrops, contextual screens, and real-world flight-tool research.
+      - >-
+        Territory Studio The Martian case study: https://territorystudio.com/project/the-martian/ — describes
+        purpose-specific screens, realistic video/telemetry, clear displays through helmets, and high-visibility design
+        in busy contexts.
+      - >-
+        Territory Studio Blade Runner 2049 case study: https://territorystudio.com/project/blade-runner-2049/ — shows
+        that material, texture, degradation, color, and interaction can communicate world/context/status, but are
+        story-specific rather than generic decoration.
+      - >-
+        NASA-STD-3001 Crew Interfaces: https://www.nasa.gov/reference/10-0-crew-interfaces-vol-2/ — provides an
+        engineering analogue for consistency, information design, alerts, displays, controls, and redundant cues for
+        critical color-coded information.
+      - >-
+        W3C WCAG 2.2 animation guidance: https://www.w3.org/WAI/WCAG22/Understanding/animation-from-interactions.html —
+        non-essential interaction animation should be disableable and reduced-motion preferences should be honored.
+      - >-
+        W3C WCAG 2.2 color/contrast guidance: https://www.w3.org/TR/WCAG22/ — color must not be the only cue, and normal
+        text generally needs 4.5:1 contrast.
+    affected_ids:
+      - R3
+      - R4
+      - DISC-001
+    questions_for_agents:
+      - >-
+        Which of the spatial, FUI, or hybrid prototypes remains readable at pi-web's actual panel sizes and mobile
+        breakpoints?
+      - >-
+        Which visual state changes communicate idle, thinking, tool use, waiting, error, and completion without relying
+        on color or motion alone?
+      - >-
+        Can the production renderer express the chosen language with existing Pixel Agents assets and pi-web tokens,
+        without importing Nicolas Lopardo or franchise assets?
+    id: ANALYSIS-001
+    recorded_at: '2026-09-12T16:49:41.089Z'
+    version: 1
+    feature: PI-PIXEL-AGENTS

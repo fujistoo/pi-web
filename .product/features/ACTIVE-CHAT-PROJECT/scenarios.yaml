@@ -1,0 +1,24 @@
+scenarios:
+  S1:
+    given: A session has activity within the selected window and is not archived
+    when: the user opens Active chats
+    then: the session appears in the cross-workspace list
+  S2:
+    given: A session is currently running but older than the selected window
+    when: the user opens Active chats
+    then: the session still appears
+  S3:
+    given: A session belongs to an archived root conversation
+    when: the user opens Active chats
+    then: the session is excluded
+  S4:
+    given: The user changes the active window
+    when: the browser is refreshed
+    then: the selected window and filtered view remain
+  S5:
+    given: A root conversation has subagent sessions
+    when: the root matches Active chats
+    then: the existing family grouping shows its subagents under the root
+source: User request; implementation recommendation accepted for this change
+version: 1
+feature: ACTIVE-CHAT-PROJECT

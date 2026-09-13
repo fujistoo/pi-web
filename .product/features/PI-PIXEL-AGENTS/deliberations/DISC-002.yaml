@@ -1,0 +1,50 @@
+topic: Nicolas Lopardo asset and sci-fi GUI reference review
+status: provisional
+messages:
+  - >-
+    Primary-site inspection covered 119 unique stills, six videos, and one Rive logo; the reference language is authored
+    cinematic FUI, not a drop-in production asset library.
+  - >-
+    GMUNK case studies repeatedly connect visual treatment to function, context, modes, and narrative rather than
+    decoration alone. Territory Studio's case studies reinforce purpose-specific screens, realistic telemetry, and
+    world-specific material language.
+  - >-
+    For pi-web, the useful abstraction is a readable hybrid: keep Pixel Agents' office and real character assets, add
+    restrained FUI layers for state/context, and keep the status meaning available without color or motion.
+  - >-
+    No Nicolas Lopardo, GMUNK, Territory, film, franchise, or Rive assets are approved for shipping; only principles and
+    original implementation may be used.
+options:
+  - id: spatial
+    label: Spatial deck
+    tradeoff: Best relationship/status scanability; weakest continuity with the existing pixel office.
+  - id: fui
+    label: Pure FUI skin
+    tradeoff: Strongest atmosphere and telemetry; highest density, copyright/asset, and accessibility risk.
+  - id: hybrid
+    label: Pixel office plus restrained FUI state layers
+    tradeoff: >-
+      Preserves existing affordance and renderer reuse while borrowing hierarchy, reticles, grids, signal accents, and
+      meaningful density.
+recommendation: >-
+  Continue with the three local mockups, but use hybrid as the default acceptance candidate: validate it at actual
+  desktop/mobile panel sizes, in reduced motion, and with text/icon/shape redundancies before any production renderer
+  change.
+scope: >-
+  Reference synthesis only; this is not a production visual decision. A PO/PM or approved design review must select the
+  direction later.
+affected_requirements:
+  - R3
+  - R4
+evidence:
+  - https://www.nicolaslopardo.com/
+  - https://gmunk.com/Top-Gun-Maverick
+  - https://gmunk.com/KIN-Holograms
+  - https://gmunk.com/OBLIVION-GFX
+  - https://territorystudio.com/project/the-martian/
+  - https://territorystudio.com/project/blade-runner-2049/
+  - https://www.w3.org/WAI/WCAG22/Understanding/animation-from-interactions.html
+id: DISC-002
+recorded_at: '2026-09-12T16:49:52.092Z'
+version: 1
+feature: PI-PIXEL-AGENTS

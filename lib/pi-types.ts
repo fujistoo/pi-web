@@ -1,3 +1,4 @@
+import type { SessionTiming } from "./session-timing";
 import type {
   AgentSessionEvent,
   BashOperations,
@@ -58,6 +59,10 @@ export interface SessionStatsInfo {
   contextUsage?: ContextUsage;
   /** Estimated active time across all entries in the session file. */
   totalActiveMs?: number;
+  /** Estimated model/tool and per-user-turn timing for the session file. */
+  timing?: SessionTiming;
+  /** Client-side start time for the currently running task. */
+  activeTaskStartedAt?: number;
 }
 
 interface PromptTemplateLike {

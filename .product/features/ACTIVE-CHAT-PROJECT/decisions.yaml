@@ -1,0 +1,17 @@
+version: 1
+feature: ACTIVE-CHAT-PROJECT
+items:
+  - title: Default active chats project behavior
+    decision: >-
+      Add a non-persisted Active chats project to the sidebar. It filters non-archived root conversations by modified
+      activity within a locally configurable window, defaults to 24 hours, and always includes currently running
+      sessions. It spans workspaces and preserves existing family grouping.
+    rationale: >-
+      This creates the requested default home for current/recent work without moving sessions between manual projects or
+      changing Pi session metadata.
+    status: accepted
+    source: User request; implementation recommendation
+    id: DEC-001
+    recorded_at: '2026-09-12T15:26:09.757Z'
+    version: 1
+    feature: ACTIVE-CHAT-PROJECT

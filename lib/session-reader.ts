@@ -3,8 +3,8 @@ import {
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 import { closeSync, fstatSync, openSync, readSync } from "fs";
-import { isAbsolute, join, normalize as normalizePath, relative, resolve as resolvePath, sep } from "path";
-import type { AgentMessage, ImageContent, SessionEntry, SessionHeader, SessionInfo, SessionContext } from "./types";
+import { basename, dirname, isAbsolute, join, normalize as normalizePath, relative, resolve as resolvePath, sep } from "path";
+import type { AgentMessage, ImageContent, SessionEntry, SessionHeader, SessionInfo, SessionContext, TextContent } from "./types";
 import { normalizeToolCalls } from "./normalize";
 import { getThinkingPreview } from "./message-display";
 import { projectIdentityKey } from "./project-identity";
@@ -93,6 +93,17 @@ function parseSessionEntries(lines: readonly string[]): SessionEntry[] {
   });
 }
 
+export function inferFleetParentSessionId(filePath: string): string | undefined {
+  // pi-subagents stores external runs under <parent-dir>/<child>/run-0/session.jsonl.
+  // Their headers lack pi-web's custom metadata, but the directory still gives
+  // us a parent link. Requiring this exact layout keeps ordinary nested/forked
+  // sessions from being reclassified.
+  const parts = filePath.split(sep);
+  if (basename(filePath) !== "session.jsonl" || parts.at(-2) !== "run-0") return undefined;
+  const parentDirectory = dirname(dirname(dirname(filePath)));
+  return basename(parentDirectory).match(/_([0-9a-z-]+)$/i)?.[1];
+}
+
 function readSessionRelationEntries(filePath: string): SessionEntry[] {
   const prefixEntries = parseSessionEntries(
     readBoundedLines(filePath, SESSION_RELATION_MAX_BYTES, SESSION_RELATION_MAX_LINES).slice(1),
@@ -146,13 +157,20 @@ async function loadAllSessions(): Promise<SessionInfo[]> {
 
   const sessions = scanned.map((s) => {
     cacheSessionPath(s.id, s.path);
-    const originSessionId = s.parentSessionPath ? pathToId.get(sessionPathKey(s.parentSessionPath)) : undefined;
+    const fleetParentSessionId = inferFleetParentSessionId(s.path);
+    const parentSessionPath = s.parentSessionPath;
+    const originSessionId = parentSessionPath
+      ? pathToId.get(sessionPathKey(parentSessionPath))
+      : fleetParentSessionId;
     let subagent = null;
     if (s.parentSessionPath) {
       try {
         subagent = readSubagentRun(readSessionRelationEntries(s.path), s.id, s.path);
       } catch { /* malformed or concurrently removed session */ }
     }
+    const fleetSubagent = fleetParentSessionId && originSessionId && !subagent
+      ? { parentSessionId: originSessionId, profile: "fleet", description: s.name || s.firstMessage, status: "completed" as const }
+      : null;
     return {
       path: s.path,
       id: s.id,
@@ -165,9 +183,11 @@ async function loadAllSessions(): Promise<SessionInfo[]> {
       parentSessionId: originSessionId,
       ...(subagent
         ? { relation: { kind: "subagent" as const, parentSessionId: subagent.parentSessionId, profile: subagent.profile, description: subagent.description, status: subagent.status } }
-        : s.parentSessionPath
-          ? { relation: { kind: "fork" as const, ...(originSessionId ? { originSessionId } : {}) } }
-          : {}),
+        : fleetSubagent
+          ? { relation: { kind: "subagent" as const, parentSessionId: fleetSubagent.parentSessionId, profile: fleetSubagent.profile, description: fleetSubagent.description, status: fleetSubagent.status } }
+          : s.parentSessionPath
+            ? { relation: { kind: "fork" as const, ...(originSessionId ? { originSessionId } : {}) } }
+            : {}),
       transient: false,
     };
   });
@@ -427,6 +447,19 @@ export interface BuildSessionContextOptions {
   sessionId?: string;
 }
 
+function isUiHistoryEntry(entry: SessionEntry): boolean {
+  switch (entry.type) {
+    case "message":
+    case "compaction":
+    case "custom_message":
+      return true;
+    case "branch_summary":
+      return Boolean(entry.summary);
+    default:
+      return false;
+  }
+}
+
 export function buildSessionContext(
   entries: SessionEntry[],
   leafId?: string | null,
@@ -435,11 +468,10 @@ export function buildSessionContext(
   const { tail, excludeLeaf } = options;
   // History pages retain the original branch order, including compacted messages.
   // SDK context filtering can drop a page's messages when firstKeptEntryId is outside it.
+  const activeBranch = leafId === null ? [] : sliceActiveBranch(entries, leafId ?? null, entries.length);
   const sliced = leafId === null ? [] : sliceActiveBranch(
     entries, leafId ?? null, tail && tail > 0 ? tail : entries.length, excludeLeaf,
   );
-  const hasMore = Boolean(tail && tail > 0 && sliced[0]?.parentId);
-
   // Convert messages and their IDs together to keep fork/navigation targets aligned.
   const messages: AgentMessage[] = [];
   const entryIds: string[] = [];
@@ -451,11 +483,41 @@ export function buildSessionContext(
     }
   }
 
+  const historyInputs = activeBranch
+    .flatMap((entry) => {
+      if (entry.type !== "message" || entry.message.role !== "user") return [];
+      const content = entry.message.content;
+      const text = (typeof content === "string"
+        ? content
+        : content
+            .filter((block): block is TextContent => block.type === "text")
+            .map((block) => block.text)
+            .join("\n"))
+        .trim()
+        .slice(0, 1000);
+      return [{
+        entryId: entry.id,
+        text,
+        timestamp: parseEntryTimestamp(entry.timestamp),
+      }];
+    });
+  // The UI label is for chat messages, not metadata/tool entries that happen
+  // to precede the bounded raw-entry window. `activeBranch` also keeps the
+  // boundary correct for pages requested with `excludeLeaf`.
+  const firstLoadedIndex = sliced.length > 0
+    ? activeBranch.findIndex((entry) => entry.id === sliced[0].id)
+    : excludeLeaf ? Math.max(0, activeBranch.length - 1) : activeBranch.length;
+  const hasMore = Boolean(
+    tail && tail > 0 && firstLoadedIndex > 0
+      && activeBranch.slice(0, firstLoadedIndex).some(isUiHistoryEntry),
+  );
+
   return {
     messages,
     entryIds,
     oldestEntryId: sliced[0]?.id ?? null,
     hasMore,
+    historyInputs,
     ...getSessionSettings(entries, leafId),
   };
 }

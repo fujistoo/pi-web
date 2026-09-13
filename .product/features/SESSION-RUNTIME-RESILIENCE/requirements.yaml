@@ -1,0 +1,34 @@
+baseline: 1
+actors:
+  - Pi Web user
+  - Pi Web UI
+  - agent worker
+requirements:
+  R1:
+    statement: >-
+      Agent execution for an accepted prompt is owned by a process independent of the Next.js service and continues
+      across a Pi Web restart.
+    priority: must
+  R2:
+    statement: >-
+      After reconnect, the UI receives an authoritative session snapshot and subsequent events without treating
+      transport loss as completion.
+    priority: must
+  R3:
+    statement: >-
+      Worker lifecycle is bounded: idle session runtimes are disposed after the configured idle timeout, event buffers
+      are bounded, and the worker exits when no work or leases remain.
+    priority: must
+  R4:
+    statement: Explicit full shutdown can stop the worker and active work; ordinary restart preserves active work.
+    priority: must
+  R5:
+    statement: If the worker is unavailable or state is indeterminate, the UI shows reconnecting/unknown rather than completed.
+    priority: must
+  R6:
+    statement: >-
+      Extension status/widget state needed by the UI is included in reconnect snapshots; CLI-only custom renderers
+      remain a separate compatibility concern.
+    priority: should
+version: 1
+feature: SESSION-RUNTIME-RESILIENCE

@@ -1,13 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import type { SessionInfo, SubagentSessionStatus } from "@/lib/types";
 
 interface Props {
-  rootSession: SessionInfo;
+  rootSession?: SessionInfo;
   subagents: SessionInfo[];
-  selectedSessionId: string;
+  selectedSessionId?: string;
   runningSessionIds: ReadonlySet<string>;
   onSelectSession: (session: SessionInfo) => void;
 }
@@ -64,6 +64,38 @@ function StatusIcon({ status }: { status: SubagentSessionStatus }) {
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <circle cx="12" cy="12" r="9" /><path d="m8 12 3 3 5-6" />
     </svg>
+  );
+}
+
+function HoverMarquee({ text, selected }: { text: string; selected: boolean }) {
+  const containerRef = useRef<HTMLSpanElement>(null);
+  const [overflowing, setOverflowing] = useState(false);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const measure = () => setOverflowing(container.scrollWidth > container.clientWidth + 1);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [text]);
+
+  return (
+    <span
+      ref={containerRef}
+      className="agent-title-marquee-wrap"
+      title={text}
+      style={{ display: "block", minWidth: 0, overflow: "hidden", whiteSpace: "nowrap", textOverflow: overflowing ? undefined : "ellipsis", fontSize: 12, fontWeight: selected ? 600 : 500 }}
+    >
+      {overflowing ? (
+        <span className="agent-title-marquee-track">
+          <span>{text}</span>
+          <span aria-hidden="true" style={{ paddingLeft: 24 }}>{text}</span>
+        </span>
+      ) : text}
+    </span>
   );
 }
 
@@ -129,9 +161,7 @@ function AgentRow({
         )}
       </span>
       <span style={{ minWidth: 0 }}>
-        <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12, fontWeight: selected ? 600 : 500 }} title={primary}>
-          {primary}
-        </span>
+        <HoverMarquee text={primary} selected={selected} />
         <span style={{ display: "block", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text-dim)", fontSize: 11 }} title={secondary}>
           {secondary}
         </span>
@@ -167,35 +197,20 @@ export function AgentSessionPanel({ rootSession, subagents, selectedSessionId, r
           .some((value) => value?.toLowerCase().includes(normalizedQuery));
       })
     : sortedSubagents;
-  const runningCount = subagents.filter((session) => runningSessionIds.has(session.id)).length;
-
   return (
     <div
       role="listbox"
       aria-label={t("agentSwitcher.title")}
       style={{
+        height: "100%",
+        minHeight: 0,
+        display: "flex",
+        flexDirection: "column",
         background: "var(--bg-panel)",
-        borderLeft: "1px solid var(--border)",
-        borderRight: "1px solid var(--border)",
-        borderBottom: "1px solid var(--border)",
-        borderRadius: "0 0 6px 6px",
-        boxShadow: "0 10px 28px rgba(0,0,0,0.10)",
         overflow: "hidden",
       }}
     >
-      <div>
-        <div style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", borderBottom: "1px solid var(--border)" }}>
-          <strong style={{ fontSize: 12, fontWeight: 600 }}>{t("agentSwitcher.title")}</strong>
-          <span style={{ color: "var(--text-dim)", fontSize: 11 }}>
-            {t("agentSwitcher.count", { count: subagents.length })}
-          </span>
-          {runningCount > 0 && (
-            <span style={{ marginLeft: "auto", color: "var(--accent)", fontSize: 11 }}>
-              {t("agentSwitcher.runningCount", { count: runningCount })}
-            </span>
-          )}
-        </div>
-        {subagents.length > 8 && (
+      {subagents.length > 8 && (
           <div style={{ padding: 8, borderBottom: "1px solid var(--border)" }}>
             <input
               type="search"
@@ -211,14 +226,16 @@ export function AgentSessionPanel({ rootSession, subagents, selectedSessionId, r
             />
           </div>
         )}
-        <div style={{ maxHeight: "min(58dvh, 480px)", overflowY: "auto" }}>
-          <AgentRow
-            session={rootSession}
-            main
-            selected={rootSession.id === selectedSessionId}
-            running={runningSessionIds.has(rootSession.id)}
-            onSelect={() => onSelectSession(rootSession)}
-          />
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+          {rootSession && (
+            <AgentRow
+              session={rootSession}
+              main
+              selected={rootSession.id === selectedSessionId}
+              running={runningSessionIds.has(rootSession.id)}
+              onSelect={() => onSelectSession(rootSession)}
+            />
+          )}
           {visibleSubagents.map((session) => (
             <AgentRow
               key={session.id}
@@ -230,11 +247,10 @@ export function AgentSessionPanel({ rootSession, subagents, selectedSessionId, r
           ))}
           {visibleSubagents.length === 0 && (
             <div style={{ padding: "22px 12px", color: "var(--text-dim)", fontSize: 12, textAlign: "center" }}>
-              {t("agentSwitcher.noMatches")}
+              {t(subagents.length === 0 ? "agentSwitcher.noAgents" : "agentSwitcher.noMatches")}
             </div>
           )}
         </div>
-      </div>
     </div>
   );
 }

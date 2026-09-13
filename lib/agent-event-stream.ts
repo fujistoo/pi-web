@@ -7,8 +7,18 @@ import { acquireSessionLivenessLease } from "./session-liveness";
 
 export interface AgentEventStreamSession {
   readonly isStreaming: boolean;
+  readonly isPromptRunning?: boolean;
+  readonly isBashRunning?: boolean;
+  readonly isCompacting?: boolean;
+  readonly running?: boolean;
   readonly streamingMessage: unknown;
-  onEvent(listener: (event: AgentEventLike) => void): () => void;
+  readonly currentEventSequence?: number;
+  readonly extensionUiState?: {
+    statuses: Array<{ key: string; text: string }>;
+    widgets: Array<{ key: string; lines: string[]; placement: "aboveEditor" | "belowEditor" }>;
+  };
+  getEventsSince?(sequence: number): Array<{ sequence: number; event: AgentEventLike }>;
+  onEvent(listener: (event: AgentEventLike, sequence?: number) => void): () => void;
 }
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
@@ -61,13 +71,13 @@ export function createAgentEventStream(
           cleanup(false);
         }
       };
-      const encode = (data: unknown) => {
-        enqueueText(`data: ${JSON.stringify(data)}\n\n`);
+      const encode = (data: unknown, sequence?: number) => {
+        enqueueText(`${typeof sequence === "number" && sequence > 0 ? `id: ${sequence}\n` : ""}data: ${JSON.stringify(data)}\n\n`);
       };
-      const forwardEvent = (event: AgentEventLike, snapshot: unknown) => {
+      const forwardEvent = (event: AgentEventLike, snapshot: unknown, sequence?: number) => {
         if (isEventIncludedInSnapshot(event, snapshot)) return;
         const clientEvent = toClientAgentEvent(event);
-        if (clientEvent) encode(clientEvent);
+        if (clientEvent) encode(clientEvent, sequence);
       };
 
       const publishSession = async () => {
@@ -75,14 +85,14 @@ export function createAgentEventStream(
           const session = await sessionPromise;
           if (closed) return;
 
-          const bufferedEvents: AgentEventLike[] = [];
+          const bufferedEvents: Array<{ event: AgentEventLike; sequence?: number }> = [];
           let snapshotPublished = false;
-          const handleEvent = (event: AgentEventLike) => {
+          const handleEvent = (event: AgentEventLike, sequence?: number) => {
             if (!snapshotPublished) {
-              bufferedEvents.push(event);
+              bufferedEvents.push({ event, sequence });
               return;
             }
-            forwardEvent(event, snapshot);
+            forwardEvent(event, snapshot, sequence);
           };
 
           const stopListening = session.onEvent(handleEvent);
@@ -93,12 +103,35 @@ export function createAgentEventStream(
           unsubscribe = stopListening;
 
           const snapshot = session.streamingMessage;
-          encode({
+          const connected: Record<string, unknown> = {
             type: "connected",
             sessionId,
             isStreaming: session.isStreaming,
-          });
-          for (const event of bufferedEvents) forwardEvent(event, snapshot);
+          };
+          if (session.running !== undefined) connected.running = session.running;
+          if (session.isPromptRunning !== undefined) connected.isPromptRunning = session.isPromptRunning;
+          if (session.isBashRunning !== undefined) connected.isBashRunning = session.isBashRunning;
+          if (session.isCompacting !== undefined) connected.isCompacting = session.isCompacting;
+          if (session.currentEventSequence !== undefined) connected.eventSequence = session.currentEventSequence;
+          if (session.extensionUiState) {
+            connected.extensionStatuses = session.extensionUiState.statuses;
+            connected.extensionWidgets = session.extensionUiState.widgets;
+          }
+          encode(connected);
+
+          const after = Number(new URL(req.url).searchParams.get("after") ?? req.headers.get("last-event-id") ?? 0);
+          const replayedEvents = Number.isFinite(after) && after > 0
+            ? session.getEventsSince?.(after) ?? []
+            : [];
+          const replayedSequences = new Set<number>();
+          for (const record of replayedEvents) {
+            replayedSequences.add(record.sequence);
+            forwardEvent(record.event, snapshot, record.sequence);
+          }
+          for (const record of bufferedEvents) {
+            if (typeof record.sequence === "number" && replayedSequences.has(record.sequence)) continue;
+            forwardEvent(record.event, snapshot, record.sequence);
+          }
           if (snapshot !== undefined && snapshot !== null) {
             encode({ type: "message_start", message: snapshot });
           }

@@ -1,0 +1,18 @@
+topic: 'Choose notification pattern: reference toast vs Beautiful UI Task Rows'
+messages:
+  - role: orchestrator
+    content: >-
+      Beautiful UI's Task Rows pattern is for persistent AI task status: progress, subtasks, failure/retry, and
+      completion. The supplied reference is a compact transient reload toast.
+  - role: orchestrator
+    content: >-
+      Recommendation: keep the supplied rounded toast for transient NoticeShelf events; use a Task Rows pattern only for
+      persistent agent/process progress.
+evidence:
+  - 'Beautiful UI: https://www.beautifului.dev/'
+  - 'Task Rows source: https://github.com/TurboKach/ai-native-react-components/blob/main/components/task-rows.tsx'
+status: recommendation
+id: DISC-001
+recorded_at: '2026-09-12T17:50:51.225Z'
+version: 1
+feature: IN-APP-NOTIFICATIONS

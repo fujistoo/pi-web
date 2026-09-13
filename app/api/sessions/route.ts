@@ -6,6 +6,7 @@ import {
   listAllSessions,
   mergeSessionLists,
 } from "@/lib/session-reader";
+import { getExistingAgentWorkerInfos } from "@/lib/agent-worker-client";
 import {
   getCompletionNotificationSuppressedRpcSessionIds,
   getRpcSessionInfos,
@@ -20,18 +21,41 @@ export async function GET(req: Request) {
     const persistedSessionsPromise = listAllSessions({ force });
     // Capture before awaiting: mutations during the scan still require a later refresh.
     const sessionListVersion = getSessionListVersion();
-    const [persistedSessions, runtimeSessions] = await Promise.all([
+    const [persistedSessions, workerState] = await Promise.all([
       persistedSessionsPromise,
-      attachSessionProjectInfo(getRpcSessionInfos()),
+      (async () => {
+        try {
+          const response = await getExistingAgentWorkerInfos();
+          if (!response) return null;
+          if (!response.ok) return null;
+          return await response.json() as {
+            sessions?: import("@/lib/types").SessionInfo[];
+            runningSessionIds?: string[];
+            completionNotificationSuppressedSessionIds?: string[];
+          };
+        } catch {
+          return null;
+        }
+      })(),
     ]);
-    const sessions = mergeSessionLists(persistedSessions, runtimeSessions);
+    const localState = getRpcSessionInfos();
+    const runtimeSessions = mergeSessionLists(workerState?.sessions ?? [], localState);
+    const sessions = mergeSessionLists(persistedSessions, await attachSessionProjectInfo(runtimeSessions));
+    const runningSessionIds = new Set([
+      ...(workerState?.runningSessionIds ?? []),
+      ...getRunningRpcSessionIds(),
+    ]);
+    const completionNotificationSuppressedSessionIds = new Set([
+      ...(workerState?.completionNotificationSuppressedSessionIds ?? []),
+      ...getCompletionNotificationSuppressedRpcSessionIds(),
+    ]);
     return jsonResponse(
       req,
       {
         sessions,
         sessionListVersion,
-        runningSessionIds: getRunningRpcSessionIds(),
-        completionNotificationSuppressedSessionIds: getCompletionNotificationSuppressedRpcSessionIds(),
+        runningSessionIds: [...runningSessionIds],
+        completionNotificationSuppressedSessionIds: [...completionNotificationSuppressedSessionIds],
       },
       { headers: { "Cache-Control": "no-store" } },
     );

@@ -1,0 +1,159 @@
+version: 1
+feature: IN-APP-NOTIFICATIONS
+items:
+  - title: Squared in-app notification treatment
+    decision: >-
+      Use a compact squared notice card inspired by the provided reference: near-square corners, a severity-colored left
+      rail, a two-digit monospace sequence marker, and a bold high-contrast message. Preserve wrapping, scrolling,
+      hover/focus pausing, and reduced-motion behavior.
+    rationale: >-
+      This gives current notices a clear, consistent visual language that can extend into the future notifications
+      feature without changing delivery behavior.
+    status: accepted
+    source: User-provided visual reference
+    id: DEC-001
+    recorded_at: '2026-09-12T16:37:30.736Z'
+    version: 1
+    feature: IN-APP-NOTIFICATIONS
+  - clarification_id: CLAR-001
+    title: Ephemeral preview artifact lifecycle
+    decision: >-
+      Keep live previews available through design review and handoff. Store editable runtime artifacts under the ignored
+      .pi/previews directory, provide an explicit Archive preview action for completed work, and garbage-collect
+      untouched runtime overrides after a conservative 30-day TTL. Never add generated preview files to the committed
+      public assets.
+    rationale: >-
+      This preserves live iteration without polluting the repository, while retaining review access until someone
+      explicitly retires a preview and removing abandoned overrides automatically.
+    status: accepted
+    source: User accepted the recommended manual archive plus TTL policy
+    id: DEC-002
+    recorded_at: '2026-09-12T17:10:37.213Z'
+    version: 1
+    feature: IN-APP-NOTIFICATIONS
+  - title: Match the reference reload-toast presentation
+    decision: >-
+      Use the supplied reload-toast presentation for the notification preview and live NoticeShelf: a dark rounded card
+      with a muted lightbulb icon and monospace message, while retaining the existing accessible pause, wrapping,
+      scrolling, and reduced-motion behavior.
+    rationale: >-
+      The reference is the accepted visual target for the notification treatment; the runtime preview and the actual
+      notice shelf should not show different visual systems.
+    status: accepted
+    source: User-confirmed visual reference
+    id: DEC-003
+    recorded_at: '2026-09-12T17:33:17.387Z'
+    version: 1
+    feature: IN-APP-NOTIFICATIONS
+  - title: Use task rows for persistent work status
+    decision: >-
+      Keep the rounded reload-toast presentation for transient NoticeShelf messages, and apply a compact Task Row
+      treatment to persistent process and subagent status: status icon, title/metadata, duration, and expandable details
+      with running/completed/failed states.
+    rationale: >-
+      This separates low-noise transient feedback from long-running work that needs visible state and detail, matching
+      the Beautiful UI pattern without adding a dependency or changing Pi metadata.
+    status: accepted
+    source: User accepted the Beautiful UI comparison recommendation
+    id: DEC-004
+    recorded_at: '2026-09-13T01:06:04.320Z'
+    version: 1
+    feature: IN-APP-NOTIFICATIONS
+  - title: Keep the Agents tab available without spawned agents
+    decision: >-
+      Always render the Agents switcher in the chat toolbar, show an explicit empty state when no subagents exist, and
+      allow the workspace to open with zero subagents.
+    rationale: The entry point remains discoverable and the workspace remains useful before delegation starts.
+    status: accepted
+    source: Direct user instruction
+    id: DEC-005
+    recorded_at: '2026-09-13T02:52:20.904Z'
+    version: 1
+    feature: IN-APP-NOTIFICATIONS
+  - title: Preview tabs are explicit and closeable
+    decision: >-
+      Do not show a default preview on startup or when the Preview panel is opened. Preview tabs are created explicitly,
+      each tab has a close control, and closing a tab removes it from the panel entirely; closing the final preview tab
+      also closes the preview panel.
+    rationale: >-
+      Users should control which transient preview surfaces are present, and a closed preview should not be silently
+      recreated.
+    status: accepted
+    source: Direct user instruction
+    id: DEC-006
+    recorded_at: '2026-09-13T05:23:25.299Z'
+    version: 1
+    feature: IN-APP-NOTIFICATIONS
+  - title: Discover previews from agent output and delete on close
+    decision: >-
+      Do not provide an Add preview control or an archive action. A preview tab is created only when an agent output
+      references an eligible `/preview/<name>.html` artifact. The tab label comes from the referenced file name. Closing
+      the tab deletes the ephemeral runtime artifact immediately; abandoned artifacts remain garbage-collectable by TTL
+      as a fallback. The output message remains the durable reference point for reopening the preview.
+    rationale: >-
+      Preview artifacts are implementation output, not a user-managed catalog. Manual creation and archiving expose
+      internal lifecycle controls and allow stale tabs to outlive the output that created them.
+    status: accepted
+    source: Direct user clarification
+    supersedes:
+      - DEC-002
+      - DEC-006
+    id: DEC-007
+    recorded_at: '2026-09-13T06:32:21.265Z'
+    version: 1
+    feature: IN-APP-NOTIFICATIONS
+  - title: Consolidate right-side resources into one panel
+    decision: >-
+      Use one consolidated right-side panel with top-level sections for Files, Previews, and Agents. File tabs and
+      output-linked design preview tabs live inside this panel. The Agents section hosts the existing subagent
+      workspace, including session selection, transcript views, Pixel Agents office, running state, and empty/retry
+      states. Preview tabs remain independently closeable; closing removes the preview artifact. Toolbar controls
+      select/open the corresponding panel section rather than rendering a separate center workspace or popup catalog.
+    rationale: >-
+      A single resource surface avoids competing file, preview, and agent panels while preserving the current subagent
+      capabilities and making previews discoverable from output links.
+    status: accepted
+    source: Direct PO/PM direction
+    supersedes:
+      - DEC-005
+      - DEC-007
+    id: DEC-008
+    recorded_at: '2026-09-13T08:34:51.276Z'
+    version: 1
+    feature: IN-APP-NOTIFICATIONS
+  - title: Persist resource tabs and separate Agents from Workspace
+    decision: >-
+      Remember the last selected top-level resource view (Files, Previews, Agents, or Workspace) when the shared side
+      panel is reopened. Keep the Agents view focused on subagent session selection and status; do not include an
+      additional workspace switcher inside it because Workspace is already a sibling resource view. On hover, animate
+      long agent titles horizontally so the full title can be read without changing row layout. Rotate the Pixel Agents
+      office composition 90 degrees clockwise so computers occupy the top and sofas occupy the bottom.
+    rationale: >-
+      The shared panel should reopen where the user left it, each resource view should have one clear responsibility,
+      and the office layout should match the requested spatial arrangement while retaining the existing office
+      connection and retry behavior.
+    status: accepted
+    source: Direct PO/PM clarification
+    supersedes:
+      - DEC-008
+    id: DEC-009
+    recorded_at: '2026-09-13T11:22:56.430Z'
+    version: 1
+    feature: IN-APP-NOTIFICATIONS
+  - title: Restore Pixel Agents orientation and align resource headers
+    decision: >-
+      Restore the Pixel Agents office to its original unrotated orientation. Standardize the shared side-panel resource
+      header geometry so Preview and Agents use the same horizontal padding, row height, vertical alignment, border
+      treatment, and close-control placement; resource-specific controls may differ, but their header frame must not
+      shift between views.
+    rationale: >-
+      The rotated office is not desired, and the supplied comparison shows Preview and Agents headers are visually
+      inconsistent in spacing and positioning.
+    status: accepted
+    source: Direct PO/PM clarification with attached screenshot
+    supersedes:
+      - DEC-009
+    id: DEC-010
+    recorded_at: '2026-09-13T11:39:13.341Z'
+    version: 1
+    feature: IN-APP-NOTIFICATIONS

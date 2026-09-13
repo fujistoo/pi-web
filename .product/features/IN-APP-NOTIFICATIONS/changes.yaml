@@ -1,0 +1,136 @@
+version: 1
+feature: IN-APP-NOTIFICATIONS
+items:
+  - title: Apply squared notice styling and side-panel preview
+    summary: >-
+      Updated live NoticeShelf cards to use the reference treatment and added a rendered Notice preview to the Agents
+      side panel.
+    artifacts:
+      - components/ChatWindow.tsx
+      - components/ChatWindow.notices.test.mjs
+      - components/AgentWorkspace.tsx
+    status: implemented
+    id: CHG-001
+    recorded_at: '2026-09-12T16:37:36.615Z'
+    version: 1
+    feature: IN-APP-NOTIFICATIONS
+  - title: Move notification preview to the live side panel
+    summary: >-
+      Removed the compiled notification mockup from the Agents workspace. The preview now renders as a sandboxed
+      HTML/CSS artifact in the existing right-side panel and refreshes its iframe when the artifact changes, without
+      reloading Pi.
+    artifacts:
+      - components/AgentWorkspace.tsx
+      - components/AppShell.tsx
+      - components/LivePreviewPanel.tsx
+      - public/previews/notification.html
+    status: implemented
+    source: Accepted user feedback
+    requirements: []
+    scenarios: []
+    id: CHG-002
+    recorded_at: '2026-09-12T17:02:07.776Z'
+    version: 1
+    feature: IN-APP-NOTIFICATIONS
+  - title: Align preview and NoticeShelf with reload toast reference
+    summary: >-
+      Replaced the squared rail-and-sequence treatment in the live preview and actual NoticeShelf with the supplied dark
+      rounded reload-toast presentation: muted lightbulb icon, monospace message, rounded border, and preserved pause,
+      wrapping, scrolling, accessibility, and reduced-motion behavior.
+    artifacts:
+      - components/ChatWindow.tsx
+      - components/ChatWindow.notices.test.mjs
+      - lib/preview-artifacts.ts
+      - .pi/previews/notification.html
+    requirements: []
+    scenarios: []
+    status: implemented
+    source: Accepted user visual feedback
+    id: CHG-003
+    recorded_at: '2026-09-12T17:47:16.733Z'
+    version: 1
+    feature: IN-APP-NOTIFICATIONS
+  - changeId: CHG-005
+    summary: >-
+      Completed collapsed Process details rows now show the task's total elapsed time, labeled explicitly as Total time;
+      streamed or compacted views fall back to visible message timestamps until canonical timing data is available.
+    source: Direct user feedback with attached completed Process details screenshot
+    impact: UI-only clarification; preserves collapsed-by-default behavior and existing active-time calculation.
+    status: implemented
+    files:
+      - components/ChatWindow.tsx
+      - components/ChatWindow.process-details.test.mjs
+      - lib/i18n/messages/en.ts
+      - lib/i18n/messages/zh-CN.ts
+      - lib/i18n/messages/zh-TW.ts
+    id: CHG-004
+    recorded_at: '2026-09-13T02:41:51.690Z'
+    version: 1
+    feature: IN-APP-NOTIFICATIONS
+  - title: Make preview tabs explicit and closeable
+    summary: >-
+      Preview mode no longer starts with a built-in default. Users can add available preview artifacts explicitly, close
+      each preview tab, and closing the last tab removes the preview surface from the right panel.
+    requirements:
+      - Preview surfaces are user-controlled and removable.
+    scenarios:
+      - No preview tabs on startup
+      - Open preview chooser with no default
+      - Close active and final preview tabs
+    artifacts:
+      - components/AppShell.tsx
+      - components/LivePreviewPanel.tsx
+      - lib/preview-artifacts.ts
+      - lib/preview-artifacts.test.mjs
+    status: implemented
+    source: Direct user instruction
+    id: CHG-005
+    recorded_at: '2026-09-13T05:23:42.900Z'
+    version: 1
+    feature: IN-APP-NOTIFICATIONS
+  - title: Replace manual preview catalog with output-linked ephemeral artifacts
+    summary: >-
+      Removed manual Add preview and Archive preview controls. Preview tabs now open from `/preview/<name>.html` output
+      references or generated preview-file chips, use the referenced filename, delete their runtime artifact when
+      closed, and retain TTL cleanup for abandoned artifacts.
+    reason: PO/PM clarification removed the Add preview and Archive preview controls.
+    requirements:
+      - Preview tabs are discovered from `/preview/<name>.html` references in agent output or generated-file chips.
+      - Preview tab labels use the referenced filename.
+      - Closing a preview deletes its runtime artifact immediately.
+      - Untouched `.pi/previews/*.html` artifacts remain subject to TTL garbage collection.
+    affected_areas:
+      - right-side preview panel
+      - Markdown/file output links
+      - preview API
+      - preview artifact storage
+      - preview translations
+      - preview tests
+    decision_id: DEC-007
+    status: implemented
+    id: CHG-006
+    recorded_at: '2026-09-13T07:02:06.395Z'
+    version: 1
+    feature: IN-APP-NOTIFICATIONS
+  - title: Persist resource view and simplify Agents workspace navigation
+    summary: >-
+      Updated the consolidated side panel to remember its last selected resource view, removed the redundant Workspace
+      action from the Agents view, added hover marquee behavior for long agent titles, and rotated the Pixel Agents
+      office composition clockwise so computers are above the sofas.
+    source: Direct PO/PM feedback
+    decision_id: DEC-009
+    requirements:
+      - The shared panel reopens on the last selected resource view.
+      - Agents remains a focused subagent list/status view; Workspace is a sibling resource view.
+      - Long agent titles remain readable on hover without changing row layout.
+      - Pixel Agents office places computers at the top and sofas at the bottom after a 90-degree clockwise rotation.
+    affected_areas:
+      - AppShell resource panel state
+      - Agents session panel
+      - Pixel Agents office
+      - desktop and mobile resource navigation
+    status: planned
+    id: CHG-007
+    recorded_at: '2026-09-13T11:23:03.967Z'
+    version: 1
+    feature: IN-APP-NOTIFICATIONS

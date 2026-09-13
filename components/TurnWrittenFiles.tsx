@@ -10,6 +10,12 @@ import { getFileIcon } from "./FileIcons";
  * preview pane. Entries come from the turn's successful `write`/`edit` tool
  * calls — the reply text is never scanned for paths.
  */
+function previewHrefForFile(filePath: string): string | null {
+  const normalized = filePath.replace(/\\/g, "/");
+  const fileName = /(?:^|\/)\.pi\/previews\/([A-Za-z0-9][A-Za-z0-9._-]{0,119}\.html)$/.exec(normalized)?.[1];
+  return fileName ? `/preview/${fileName}` : null;
+}
+
 export function TurnWrittenFiles({ files, onOpenFile }: {
   files: WrittenFile[];
   onOpenFile?: (filePath: string) => void;
@@ -21,13 +27,15 @@ export function TurnWrittenFiles({ files, onOpenFile }: {
     <div aria-label={t("chat.filesWritten")} style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, marginTop: 6 }}>
       {files.map(({ filePath }) => {
         const name = getFileName(filePath);
+        const previewHref = previewHrefForFile(filePath);
+        const label = previewHref ?? name;
         return (
           <button
             key={filePath}
             type="button"
             title={filePath}
-            aria-label={t("chat.openWrittenFile", { name })}
-            onClick={() => onOpenFile?.(filePath)}
+            aria-label={t("chat.openWrittenFile", { name: label })}
+            onClick={() => onOpenFile?.(previewHref ?? filePath)}
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -43,7 +51,7 @@ export function TurnWrittenFiles({ files, onOpenFile }: {
             }}
           >
             {getFileIcon(name, 12)}
-            <span>{name}</span>
+            <span>{label}</span>
           </button>
         );
       })}

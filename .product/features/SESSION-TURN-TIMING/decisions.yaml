@@ -1,0 +1,16 @@
+version: 1
+feature: SESSION-TURN-TIMING
+items:
+  - title: Define and display active turn duration
+    decision: >-
+      A turn starts at a persisted user-message entry and ends at the next user-message boundary. Display its active
+      duration in the collapsed process-details header, using the existing timestamp-based task timing keyed by user
+      entry ID.
+    rationale: >-
+      This includes model, tool, and compaction work; excludes human idle time; and avoids browser stopwatch drift or
+      branch-index mismatches.
+    id: DEC-001
+    status: accepted
+    recorded_at: '2026-09-12T13:13:25.697Z'
+    version: 1
+    feature: SESSION-TURN-TIMING

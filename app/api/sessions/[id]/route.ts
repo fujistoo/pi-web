@@ -4,6 +4,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from "path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import {
   attachSessionProjectInfo,
+  inferFleetParentSessionId,
   listAllSessions,
   mergeSessionLists,
   resolveSessionPath,
@@ -15,9 +16,15 @@ import {
   getAgentDir,
 } from "@/lib/session-reader";
 import { sessionPathKey } from "@/lib/session-path";
+import {
+  getExistingAgentWorkerSnapshot,
+  getExistingAgentWorkerInfos,
+  sendExistingAgentWorkerCommand,
+  sendExistingAgentWorkerSubagentCommand,
+} from "@/lib/agent-worker-client";
 import { abortSubagent, getRpcSession, getRpcSessionInfos } from "@/lib/rpc-manager";
 import { projectTreeForResponse } from "@/lib/project-tree";
-import { computeSessionTotalActiveMs } from "@/lib/session-timing";
+import { computeSessionTiming } from "@/lib/session-timing";
 import { computeSessionStats } from "@/lib/session-stats";
 import type { SessionEntry } from "@/lib/types";
 import { readSubagentRun, readSubagentSessionResources, SUBAGENT_META_TYPE } from "@/lib/subagents";
@@ -39,15 +46,31 @@ export async function GET(
 ) {
   const { id } = await params;
   try {
-    const rpc = getRpcSession(id);
-    const liveRpc = rpc?.isAlive() ? rpc : undefined;
-    const resolvedPath = liveRpc ? null : await resolveSessionPath(id);
-    if (!liveRpc && !resolvedPath) {
+    const workerSnapshotResponse = await getExistingAgentWorkerSnapshot(id);
+    const liveSnapshot = workerSnapshotResponse?.ok
+      ? await workerSnapshotResponse.json() as {
+          sessionFile?: string;
+          cwd: string;
+          entries: unknown[];
+          running?: boolean;
+        }
+      : null;
+    const localRpc = getRpcSession(id);
+    const liveRpc = liveSnapshot
+      ? undefined
+      : typeof localRpc?.isAlive === "function" && localRpc.isAlive()
+        ? localRpc
+        : undefined;
+    const resolvedPath = liveSnapshot || liveRpc ? null : await resolveSessionPath(id);
+    if (!liveSnapshot && !liveRpc && !resolvedPath) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
-    const sm = liveRpc?.inner.sessionManager ?? SessionManager.open(resolvedPath!);
-    const filePath = liveRpc?.sessionFile || sm.getSessionFile() || resolvedPath || "";
+    const sm = liveSnapshot
+      ? SessionManager.inMemory(liveSnapshot.cwd, undefined, liveSnapshot.entries as never)
+      : liveRpc?.inner.sessionManager ?? SessionManager.open(resolvedPath!);
+    const liveRunning = liveSnapshot?.running ?? liveRpc?.isRunning() ?? false;
+    const filePath = liveSnapshot?.sessionFile || liveRpc?.sessionFile || sm.getSessionFile() || resolvedPath || "";
     const entries = sm.getEntries();
     const leafId = sm.getLeafId();
     const tree = projectTreeForResponse(sm.getTree());
@@ -62,7 +85,7 @@ export async function GET(
       tail,
       sessionId: id, // local: lazy URLs for historical tool-result images
     });
-    const totalActiveMs = computeSessionTotalActiveMs(entries);
+    const timing = computeSessionTiming(entries);
     // Cumulative usage over ALL entries, including history compacted away —
     // the same aggregation the SDK's getSessionStats() uses. Lets the client
     // keep monotonic token/cost counters across compaction and page reloads.
@@ -80,6 +103,7 @@ export async function GET(
     const subagent = header
       ? readSubagentRun(entries as never, header.id, filePath)
       : null;
+    const fleetParentSessionId = header ? inferFleetParentSessionId(filePath) : undefined;
     const toolNames = readSubagentSessionResources(entries as never)?.tools
       ?? readSessionToolSelection(entries as never);
     const info = header ? (await attachSessionProjectInfo([{
@@ -96,12 +120,14 @@ export async function GET(
             return typeof c === "string" ? c : (Array.isArray(c) ? (c.find((b: { type: string }) => b.type === "text") as { text: string } | undefined)?.text ?? "" : "") || "(no messages)";
           })()
         : "(no messages)",
-      parentSessionId,
+      parentSessionId: parentSessionId ?? fleetParentSessionId,
       ...(subagent
-        ? { relation: { kind: "subagent" as const, parentSessionId: subagent.parentSessionId, profile: subagent.profile, description: subagent.description, status: liveRpc?.isRunning() ? "running" as const : subagent.status } }
-        : header.parentSession
-          ? { relation: { kind: "fork" as const, ...(parentSessionId ? { originSessionId: parentSessionId } : {}) } }
-          : {}),
+        ? { relation: { kind: "subagent" as const, parentSessionId: subagent.parentSessionId, profile: subagent.profile, description: subagent.description, status: liveRunning ? "running" as const : subagent.status } }
+        : fleetParentSessionId
+          ? { relation: { kind: "subagent" as const, parentSessionId: fleetParentSessionId, profile: "fleet", description: sessionName || "Subagent", status: liveRunning ? "running" as const : "completed" as const } }
+          : header.parentSession
+            ? { relation: { kind: "fork" as const, ...(parentSessionId ? { originSessionId: parentSessionId } : {}) } }
+            : {}),
       transient: !filePath || !existsSync(filePath),
     }]))[0] : null;
 
@@ -115,7 +141,8 @@ export async function GET(
         tree,
         context,
         stats,
-        totalActiveMs,
+        totalActiveMs: timing.totalActiveMs,
+        timing,
         ...(toolNames !== undefined ? { toolNames } : {}),
       },
     );
@@ -135,12 +162,21 @@ export async function PATCH(
     if (typeof name !== "string") {
       return NextResponse.json({ error: "name is required" }, { status: 400 });
     }
+    const trimmedName = name.trim();
+    const workerResponse = await sendExistingAgentWorkerCommand(id, {
+      type: "set_session_name",
+      name: trimmedName,
+    });
+    if (workerResponse?.ok) {
+      invalidateSessionListCache();
+      return NextResponse.json({ ok: true });
+    }
     const filePath = await resolveSessionPath(id);
     if (!filePath) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
     const sm = SessionManager.open(filePath);
-    sm.appendSessionInfo(name.trim());
+    sm.appendSessionInfo(trimmedName);
     invalidateSessionListCache();
     return NextResponse.json({ ok: true });
   } catch (error) {
@@ -181,9 +217,20 @@ export async function DELETE(
     const targetPathKey = sessionPathKey(filePath);
     const dir = dirname(filePath);
     // Deleting a session also deletes every persisted or live subagent below it.
+    const liveSessions = await (async () => {
+      try {
+        const response = await getExistingAgentWorkerInfos();
+        if (!response) return getRpcSessionInfos({ includeTransient: true });
+        if (!response.ok) return getRpcSessionInfos({ includeTransient: true });
+        const workerSessions = (await response.json() as { sessions?: import("@/lib/types").SessionInfo[] }).sessions ?? [];
+        return mergeSessionLists(workerSessions, getRpcSessionInfos({ includeTransient: true }));
+      } catch {
+        return [];
+      }
+    })();
     const sessions = mergeSessionLists(
       await listAllSessions({ force: true }),
-      getRpcSessionInfos({ includeTransient: true }),
+      liveSessions,
     );
     const childrenByParent = new Map<string, string[]>();
     for (const session of sessions) {
@@ -231,7 +278,7 @@ export async function DELETE(
     }
     for (const deletedId of deletedSessionIds) {
       if (deletedPaths.has(deletedId)) continue;
-      const runtimePath = getRpcSession(deletedId)?.sessionFile;
+      const runtimePath = sessions.find((session) => session.id === deletedId)?.path || getRpcSession(deletedId)?.sessionFile;
       if (runtimePath) deletedPaths.set(deletedId, runtimePath);
       else {
         const resolvedPath = await resolveSessionPath(deletedId);
@@ -293,11 +340,21 @@ export async function DELETE(
 
     for (const deletedId of [...deletedSessionIds].reverse()) {
       if (deletedId === id) continue;
-      try { await abortSubagent(deletedId); } catch { /* idle or completed */ }
-      await getRpcSession(deletedId)?.shutdown();
+      const localSession = getRpcSession(deletedId);
+      try { await sendExistingAgentWorkerSubagentCommand(deletedId, { action: "abort" }); } catch { /* idle or completed */ }
+      try { await sendExistingAgentWorkerCommand(deletedId, { type: "shutdown_session" }); } catch { /* idle or completed */ }
+      if (localSession && (typeof localSession.isAlive !== "function" || localSession.isAlive())) {
+        try { await abortSubagent(deletedId); } catch { /* idle or completed */ }
+        await localSession.shutdown();
+      }
     }
-    try { await abortSubagent(id); } catch { /* ordinary session */ }
-    await getRpcSession(id)?.shutdown();
+    const localSession = getRpcSession(id);
+    try { await sendExistingAgentWorkerCommand(id, { type: "abort" }); } catch { /* ordinary session */ }
+    try { await sendExistingAgentWorkerCommand(id, { type: "shutdown_session" }); } catch { /* idle or completed */ }
+    if (localSession && (typeof localSession.isAlive !== "function" || localSession.isAlive())) {
+      try { await abortSubagent(id); } catch { /* ordinary session */ }
+      await localSession.shutdown();
+    }
     for (const [deletedId, deletedPath] of deletedPaths) {
       try {
         unlinkSync(deletedPath);

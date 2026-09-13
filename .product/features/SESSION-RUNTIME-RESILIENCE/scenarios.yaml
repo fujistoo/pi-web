@@ -1,0 +1,37 @@
+scenarios:
+  S1:
+    given: A prompt is actively running in Pi Web.
+    when: The Pi Web service is restarted.
+    then: >-
+      The agent worker remains alive, the prompt continues, and the UI reconnects showing running state and later
+      completion exactly once.
+    covers:
+      - R1
+      - R2
+  S2:
+    given: The browser loses its SSE connection while work is active.
+    when: The UI reconnects.
+    then: The server returns a current snapshot plus replayable events; connection loss is not rendered as completion.
+    covers:
+      - R2
+      - R5
+  S3:
+    given: No session has active work or a live browser lease.
+    when: The worker idle timeout elapses.
+    then: Session runtimes and the worker are disposed, with no permanent per-session memory retention.
+    covers:
+      - R3
+  S4:
+    given: The user explicitly stops Pi Web completely.
+    when: The shutdown command runs.
+    then: The worker receives graceful shutdown and active work is stopped, unlike a routine restart.
+    covers:
+      - R4
+  S5:
+    given: An extension has status/widget state in an active session.
+    when: The UI reconnects after a Web restart.
+    then: The state snapshot includes the extension UI state available from the worker.
+    covers:
+      - R6
+version: 1
+feature: SESSION-RUNTIME-RESILIENCE

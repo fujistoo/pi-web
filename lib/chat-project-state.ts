@@ -1,5 +1,9 @@
 export const CHAT_PROJECT_STATE_STORAGE_KEY = "pi-web:chat-project-state";
 export const CHAT_PROJECT_STATE_VERSION = 1;
+export const ACTIVE_CHAT_WINDOW_STORAGE_KEY = "pi-web:active-chat-window-hours";
+export const ACTIVE_CHAT_PROJECT_SELECTION_STORAGE_KEY = "pi-web:active-chat-project-selected";
+export const DEFAULT_ACTIVE_CHAT_WINDOW_HOURS = 24;
+export const ACTIVE_CHAT_WINDOW_OPTIONS = [1, 6, 12, 24, 48, 168, 720] as const;
 
 export const CHAT_PROJECT_COLORS = [
   "#2563eb",
@@ -109,6 +113,61 @@ function browserStorage(): ChatProjectStorage | null {
     return window.localStorage;
   } catch {
     return null;
+  }
+}
+
+export function parseActiveChatWindowHours(value: unknown): number {
+  const hours = typeof value === "number"
+    ? value
+    : typeof value === "string" && value.trim()
+      ? Number(value)
+      : NaN;
+  return Number.isInteger(hours) && ACTIVE_CHAT_WINDOW_OPTIONS.includes(hours as typeof ACTIVE_CHAT_WINDOW_OPTIONS[number])
+    ? hours
+    : DEFAULT_ACTIVE_CHAT_WINDOW_HOURS;
+}
+
+export function loadActiveChatWindowHours(storage: ChatProjectStorage | null = browserStorage()): number {
+  if (!storage) return DEFAULT_ACTIVE_CHAT_WINDOW_HOURS;
+  try {
+    return parseActiveChatWindowHours(storage.getItem(ACTIVE_CHAT_WINDOW_STORAGE_KEY));
+  } catch {
+    return DEFAULT_ACTIVE_CHAT_WINDOW_HOURS;
+  }
+}
+
+export function loadActiveChatProjectSelection(storage: ChatProjectStorage | null = browserStorage()): boolean {
+  if (!storage) return false;
+  try {
+    return storage.getItem(ACTIVE_CHAT_PROJECT_SELECTION_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function saveActiveChatProjectSelection(
+  selected: boolean,
+  storage: ChatProjectStorage | null = browserStorage(),
+): boolean {
+  if (!storage) return false;
+  try {
+    storage.setItem(ACTIVE_CHAT_PROJECT_SELECTION_STORAGE_KEY, selected ? "1" : "0");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function saveActiveChatWindowHours(
+  hours: number,
+  storage: ChatProjectStorage | null = browserStorage(),
+): boolean {
+  if (!storage) return false;
+  try {
+    storage.setItem(ACTIVE_CHAT_WINDOW_STORAGE_KEY, String(parseActiveChatWindowHours(hours)));
+    return true;
+  } catch {
+    return false;
   }
 }
 

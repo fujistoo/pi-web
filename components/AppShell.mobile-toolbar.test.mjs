@@ -24,19 +24,37 @@ test("uses a compact narrow-mobile toolbar with a floating action layer", () => 
   }
 });
 
-test("only renders the Agents switcher when the active session family has subagents", () => {
-  assert.match(source, /const hasSubagentSessions = Boolean\(activeSessionFamily\?\.subagents\.length\)/);
-  assert.match(source, /\{hasSubagentSessions && \(\s*<button[\s\S]*?toggleTopPanel\("agents", mobile\)/);
-  assert.match(source, /activeTopPanel === "agents" && activeSessionFamily && selectedSession/);
+test("always renders the Agents switcher and supports an empty session family", () => {
+  assert.doesNotMatch(source, /hasSubagentSessions/);
+  assert.match(source, /onClick=\{handleAgentsPanelToggle\}/);
+  assert.match(source, /activeSessionFamily\?\.subagents\.length \?\? 0/);
+  assert.match(source, /rightPanelView === "agents"/);
+  assert.match(source, /\["files", "previews", "agents", "workspace"\]/);
+  assert.match(source, /rootSession=\{activeSessionFamily\?\.root \?\? selectedSession \?\? undefined\}/);
 });
 
-test("keeps the Agents panel open while switching sessions and positions it at the left", () => {
-  assert.match(source, /const AGENT_PANEL_WIDTH = 420/);
-  assert.match(
-    source,
-    /if \(activeTopPanel === "agents"\)[\s\S]*?left: topBarRect\.left[\s\S]*?width: Math\.min\(AGENT_PANEL_WIDTH, topBarRect\.width\)/,
-  );
+test("persists the last selected resource subtab", () => {
+  assert.match(source, /const RIGHT_PANEL_VIEW_KEY = "pi-right-panel-view"/);
+  assert.match(source, /function isRightPanelView\(value: string \| null\): value is RightPanelView/);
+  assert.match(source, /window\.localStorage\.getItem\(RIGHT_PANEL_VIEW_KEY\)/);
+  assert.match(source, /window\.localStorage\.setItem\(RIGHT_PANEL_VIEW_KEY, rightPanelView\)/);
+});
+
+test("keeps the Agents panel open while switching sessions in the shared resource panel", () => {
+  assert.match(source, /type RightPanelView = "files" \| "previews" \| "agents" \| "workspace"/);
+  assert.match(source, /const openRightPanelView = useCallback/);
+  assert.match(source, /setRightPanelView\(view\)/);
+  assert.match(source, /id="resource-panel"/);
   assert.match(source, /<AgentSessionPanel[\s\S]*?onSelectSession=\{handleSelectSession\}/);
+});
+
+test("exposes a direct Agents workspace toolbar toggle", () => {
+  assert.match(source, /const handleAgentWorkspaceToggle = useCallback/);
+  assert.match(source, /const renderMainAgentsWorkspaceToggle = \(mobile: boolean\)/);
+  assert.match(source, /data-mobile-toolbar-agents-workspace/);
+  assert.match(source, /renderMainAgentsWorkspaceToggle\(true\)/);
+  assert.match(source, /renderMainAgentsWorkspaceToggle\(false\)/);
+  assert.match(source, /aria-controls="resource-panel"/);
 });
 
 test("only renders branch toolbar controls for sessions with branches", () => {

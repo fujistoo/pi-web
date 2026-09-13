@@ -6,14 +6,14 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 const jiti = createJiti(import.meta.url, { jsx: { runtime: "automatic" }, tsconfigPaths: true });
-const { ARCHIVED_CHAT_PROJECT_ID, SessionSidebar, filterSessionsForChatProject, getFocusedSessionRowIndex, getSessionListIndices, getSessionRows, isSessionRowSelected } = await jiti.import("./SessionSidebar.tsx");
+const { ACTIVE_CHAT_PROJECT_ID, ARCHIVED_CHAT_PROJECT_ID, SessionSidebar, filterSessionsForActiveChatProject, filterSessionsForChatProject, getFocusedSessionRowIndex, getSessionListIndices, getSessionRows, isSessionRowSelected } = await jiti.import("./SessionSidebar.tsx");
 const { listSessionFamilies } = await jiti.import("../lib/session-family.ts");
 const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
 
 const source = await readFile(new URL("./SessionSidebar.tsx", import.meta.url), "utf8");
 const sessionItemSource = source.slice(source.indexOf("function SessionItem("));
 
-test("the default sidebar renders only the All chats and Archived chat folders", () => {
+test("the default sidebar renders the Active chats, All chats, and Archived folders", () => {
   const html = renderToStaticMarkup(createElement(
     I18nProvider,
     null,
@@ -22,6 +22,7 @@ test("the default sidebar renders only the All chats and Archived chat folders",
       onSelectSession: () => {},
     }),
   ));
+  assert.match(html, />Active chats</);
   assert.match(html, />All chats</);
   assert.match(html, />Archived</);
   assert.doesNotMatch(html, /Product launch|Research notes|Bug triage/);
@@ -145,6 +146,24 @@ test("offers the downstream context-menu hook only on a normal session row", () 
   );
 });
 
+test("active chats include recent or running families and exclude archived roots", () => {
+  const sessions = [
+    makeSession("recent", "2026-09-12T14:00:00.000Z"),
+    makeSession("old", "2026-09-01T14:00:00.000Z"),
+    makeSession("running", "2026-09-01T14:00:00.000Z"),
+    makeSession("child", "2026-09-01T14:00:00.000Z", "running"),
+    makeSession("archived", "2026-09-12T14:00:00.000Z"),
+  ];
+  const result = filterSessionsForActiveChatProject(
+    sessions,
+    new Set(["running"]),
+    new Set(["archived"]),
+    Date.parse("2026-09-12T12:00:00.000Z"),
+  );
+  assert.deepEqual(result.map((session) => session.id), ["recent", "running", "child"]);
+  assert.equal(ACTIVE_CHAT_PROJECT_ID, "__active__");
+});
+
 test("chat projects span filesystem directories and apply to a session family", () => {
   const sessions = [
     makeSession("chat-a", "2026-01-01T00:00:00.000Z", undefined, "/tmp/project-a"),
@@ -169,7 +188,8 @@ test("chat projects span filesystem directories and apply to a session family", 
 test("lifecycle refreshes bypass the cache while cross-window polling reuses it", () => {
   assert.match(source, /force \? "\/api\/sessions\?force=1" : "\/api\/sessions"/);
   assert.match(source, /cache: "no-store"/);
-  assert.match(source, /loadSessions\(isFirst, !isFirst\)/);
+  assert.match(source, /loadedRefreshKeyRef\.current === effectiveRefreshKey/);
+  assert.match(source, /loadSessions\(isInitialLoad, !isInitialLoad\)/);
   assert.match(source, /data\.sessionListVersion !== sessionListVersionRef\.current[\s\S]*?await loadSessions\(\)/);
   assert.doesNotMatch(source, /sessionRefreshDone|sessionRefreshTimerRef|title=\{t\("sidebar\.refresh"\)\}/);
   assert.match(source, /loadSessions\(false, true\);[\s\S]*?onBackgroundTaskDone/);

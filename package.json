@@ -19,6 +19,8 @@
   },
   "files": [
     "bin",
+    "lib",
+    ".pi",
     ".next",
     "!.next/cache",
     "!.next/dev",
@@ -57,7 +59,8 @@
     "remark-frontmatter": "^5.0.0",
     "semver": "7.8.0",
     "undici": "8.10.0",
-    "web-push": "^3.6.7"
+    "web-push": "^3.6.7",
+    "jiti": "^2.7.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2.2",
@@ -71,7 +74,6 @@
     "@types/web-push": "^3.6.4",
     "eslint": "^9",
     "eslint-config-next": "16.3.1",
-    "jiti": "^2.7.0",
     "katex": "^0.16.47",
     "mammoth": "^1.12.0",
     "mermaid": "^11.16.1",

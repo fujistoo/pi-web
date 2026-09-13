@@ -1,39 +1,29 @@
-import { createAgentEventStream } from "@/lib/agent-event-stream";
-import { resolveSessionPath } from "@/lib/session-reader";
-import { getRpcSession, startRpcSession } from "@/lib/rpc-manager";
+import { NextResponse } from "next/server";
+import { connectExistingAgentWorkerEvents } from "@/lib/agent-worker-client";
 
 export const dynamic = "force-dynamic";
 
-// GET /api/agent/[id]/events - SSE stream of agent events
+// GET /api/agent/[id]/events - Proxy the agent worker's SSE stream.
 export async function GET(
   req: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
   if (req.signal.aborted) return new Response(null, { status: 204 });
 
-  // Fast path: already-running session
-  const session = getRpcSession(id);
-  let sessionPromise;
-  if (session?.isAlive()) {
-    sessionPromise = Promise.resolve(session);
-  } else {
-    const filePath = await resolveSessionPath(id);
-    if (!filePath) {
-      return new Response("Session not found", { status: 404 });
-    }
-    if (req.signal.aborted) return new Response(null, { status: 204 });
-    sessionPromise = startRpcSession(id, filePath, undefined).then((result) => result.session);
+  try {
+    const response = await connectExistingAgentWorkerEvents(id, req);
+    if (!response) return new Response(null, { status: 204 });
+    return new Response(response.body, {
+      status: response.status,
+      headers: {
+        "Content-Type": response.headers.get("Content-Type") ?? "text/event-stream",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
+      },
+    });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
-
-  const stream = createAgentEventStream(req, id, sessionPromise);
-
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache, no-transform",
-      Connection: "keep-alive",
-      "X-Accel-Buffering": "no",
-    },
-  });
 }

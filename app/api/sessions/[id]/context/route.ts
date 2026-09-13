@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { resolveSessionPath, buildSessionContext } from "@/lib/session-reader";
+import { getExistingAgentWorkerSnapshot } from "@/lib/agent-worker-client";
 import { getRpcSession } from "@/lib/rpc-manager";
 
 export async function GET(
@@ -20,14 +21,20 @@ export async function GET(
   const before = url.searchParams.get("before") ?? undefined;
 
   try {
-    const rpc = getRpcSession(id);
-    const liveRpc = rpc?.isAlive() ? rpc : undefined;
-    const filePath = liveRpc ? null : await resolveSessionPath(id);
-    if (!liveRpc && !filePath) {
+    const workerSnapshotResponse = await getExistingAgentWorkerSnapshot(id);
+    const liveSnapshot = workerSnapshotResponse?.ok
+      ? await workerSnapshotResponse.json() as { cwd: string; entries: unknown[] }
+      : null;
+    const localRpc = getRpcSession(id);
+    const liveRpc = liveSnapshot ? undefined : localRpc?.isAlive() ? localRpc : undefined;
+    const filePath = liveSnapshot || liveRpc ? null : await resolveSessionPath(id);
+    if (!liveSnapshot && !liveRpc && !filePath) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
-    const sm = liveRpc?.inner.sessionManager ?? SessionManager.open(filePath!);
+    const sm = liveSnapshot
+      ? SessionManager.inMemory(liveSnapshot.cwd, undefined, liveSnapshot.entries as never)
+      : liveRpc?.inner.sessionManager ?? SessionManager.open(filePath!);
     // `before` is the oldest entry already on the client; fetch its ancestors
     // only (excludeLeaf) so prepending the page does not duplicate `before`.
     const context = buildSessionContext(sm.getEntries() as never, before ?? leafId, {

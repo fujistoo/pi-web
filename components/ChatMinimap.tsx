@@ -8,16 +8,18 @@ import {
   normalizeDisplayMath,
 } from "@/lib/markdown";
 import { isMessageGroupAnchor, splitFinalAssistantBlocks } from "@/lib/message-display";
-import type { AgentMessage, AssistantMessage, CustomMessage, TextContent, UserMessage } from "@/lib/types";
+import type { AgentMessage, AssistantMessage, CustomMessage, SessionHistoryInput, TextContent, UserMessage } from "@/lib/types";
 import { useI18n } from "@/hooks/useI18n";
 import styles from "./ChatMinimap.module.css";
 
 interface Props {
   messages: AgentMessage[];
+  entryIds: string[];
+  historyInputs: SessionHistoryInput[];
   streamingMessage: Partial<AgentMessage> | null;
   scrollContainer: RefObject<HTMLDivElement | null>;
   messageRefs: RefObject<(HTMLDivElement | null)[]>;
-  onRevealHistory: () => void;
+  onRevealHistory: (entryId: string) => void;
 }
 
 const MINIMAP_WIDTH = 36;
@@ -32,6 +34,7 @@ interface AssistantPreview {
 }
 
 interface TurnInfo {
+  entryId: string;
   userMessage: UserMessage | CustomMessage;
   assistantPreviews: AssistantPreview[];
   scrollTop: number | null;
@@ -229,6 +232,8 @@ function layoutNodes(allNodes: NodeInfo[], minimapHeight: number): NodeLayout {
 
 export function ChatMinimap({
   messages,
+  entryIds,
+  historyInputs,
   streamingMessage,
   scrollContainer,
   messageRefs,
@@ -325,40 +330,52 @@ export function ChatMinimap({
 
       const refs = messageRefs.current;
       const containerRect = scrollEl.getBoundingClientRect();
-      const turns: TurnInfo[] = [];
+      const loadedTurns = new Map<string, TurnInfo>();
       let refIndex = 0;
       let currentTurn: TurnInfo | null = null;
 
-      for (const message of allMessagesRef.current) {
+      allMessagesRef.current.forEach((message, messageIndex) => {
         const isAnchor = isMessageGroupAnchor(message);
-        if (!isAnchor && message.role !== "assistant") continue;
+        if (!isAnchor && message.role !== "assistant") return;
         const element = refs?.[refIndex];
         refIndex++;
+        const elementRect = element?.getBoundingClientRect();
 
         if (isAnchor) {
           currentTurn = null;
-          const elementRect = element?.getBoundingClientRect();
-          currentTurn = {
+          const entryId = entryIds[messageIndex];
+          if (!entryId) return;
+          const turn: TurnInfo = {
+            entryId,
             userMessage: message as UserMessage | CustomMessage,
             assistantPreviews: [],
             scrollTop: elementRect
               ? elementRect.top - containerRect.top + scrollEl.scrollTop
               : null,
           };
-          turns.push(currentTurn);
-          continue;
+          currentTurn = turn;
+          loadedTurns.set(entryId, turn);
+          return;
         }
 
-        if (!currentTurn) continue;
+        if (!currentTurn) return;
         const answerMarkdown = getAssistantAnswerMarkdown(message);
-        if (answerMarkdown) {
-          currentTurn.assistantPreviews.push({
-            markdown: answerMarkdown,
-            element,
-          });
-        }
-      }
+        if (answerMarkdown) currentTurn.assistantPreviews.push({ markdown: answerMarkdown, element });
+      });
 
+      const turns = [
+        ...historyInputs.map((input) => loadedTurns.get(input.entryId) ?? {
+          entryId: input.entryId,
+          userMessage: { role: "user", content: input.text, timestamp: input.timestamp },
+          assistantPreviews: [],
+          scrollTop: null,
+        } satisfies TurnInfo),
+        ...[...loadedTurns.values()].filter((turn) => (
+          turn.userMessage.role === "custom"
+          && turn.userMessage.customType === "compaction"
+          && !historyInputs.some((input) => input.entryId === turn.entryId)
+        )),
+      ];
       const nextNodes = createTurnNodes(turns);
       setMinimapHeight(minimapEl.clientHeight);
       allNodesRef.current = nextNodes;
@@ -400,7 +417,7 @@ export function ChatMinimap({
         scrollEl.scrollTo({ top: Math.max(0, targetTop - targetOffset), behavior: "smooth" });
       }
     }, 150);
-  }, [lockActiveNode, messageRefs, scrollContainer, syncActiveNode]);
+  }, [entryIds, historyInputs, lockActiveNode, messageRefs, scrollContainer, syncActiveNode]);
 
   useEffect(() => {
     const el = scrollContainer.current;
@@ -443,7 +460,7 @@ export function ChatMinimap({
     lockActiveNode(node.index);
     if (node.targetTurn.scrollTop === null) {
       pendingNavigationRef.current = { nodeIndex: node.index, target: "user" };
-      onRevealHistory();
+      onRevealHistory(node.targetTurn.entryId);
       return;
     }
     const targetTop = Math.max(
@@ -463,7 +480,7 @@ export function ChatMinimap({
         target: "assistant",
         assistantIndex,
       };
-      onRevealHistory();
+      onRevealHistory(node.targetTurn.entryId);
       return;
     }
     const containerRect = scrollEl.getBoundingClientRect();
@@ -512,7 +529,7 @@ export function ChatMinimap({
         assistantIndex,
         headingIndex,
       };
-      onRevealHistory();
+      onRevealHistory(node.targetTurn.entryId);
       return;
     }
     const heading = answerElement.querySelectorAll<HTMLElement>("h1, h2, h3").item(headingIndex);

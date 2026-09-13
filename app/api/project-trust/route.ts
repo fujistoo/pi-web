@@ -5,6 +5,10 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { invalidateModelsCache } from "@/lib/models-cache";
 import { getProjectTrustStatus, trustProject } from "@/lib/project-trust";
+import {
+  getExistingAgentWorkerCwdStatus,
+  shutdownExistingAgentWorkerSessionsForCwd,
+} from "@/lib/agent-worker-client";
 import { destroyRpcSessionsForCwd, hasBusyRpcSessionForCwd } from "@/lib/rpc-manager";
 
 export const dynamic = "force-dynamic";
@@ -49,13 +53,21 @@ export async function POST(req: Request) {
     if (!current.requiresTrust) {
       return NextResponse.json({ error: "This project has no resources that require trust" }, { status: 409 });
     }
-    if (hasBusyRpcSessionForCwd(result.cwd)) {
+    const busyResponse = await getExistingAgentWorkerCwdStatus(result.cwd);
+    const busy = busyResponse?.ok
+      ? await busyResponse.json() as { busy?: boolean }
+      : { busy: hasBusyRpcSessionForCwd(result.cwd) };
+    if (busy.busy) {
       return NextResponse.json({ error: "Wait for the active session to finish before trusting this project" }, { status: 409 });
     }
 
     const status = trustProject(result.cwd, agentDir);
     invalidateModelsCache();
-    await destroyRpcSessionsForCwd(result.cwd);
+    const shutdownResponse = await shutdownExistingAgentWorkerSessionsForCwd(result.cwd);
+    if (shutdownResponse && !shutdownResponse.ok) {
+      return NextResponse.json({ error: `Failed to reload project sessions (HTTP ${shutdownResponse.status})` }, { status: 503 });
+    }
+    if (!shutdownResponse) await destroyRpcSessionsForCwd(result.cwd);
     return NextResponse.json(status);
   } catch (error) {
     return NextResponse.json(

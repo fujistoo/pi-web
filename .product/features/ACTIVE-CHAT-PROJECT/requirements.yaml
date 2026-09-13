@@ -1,0 +1,25 @@
+baseline: 1
+actors:
+  - session user
+requirements:
+  R1:
+    statement: A built-in Active chats project is always available in the Projects section without requiring manual creation.
+    priority: must
+  R2:
+    statement: >-
+      The Active chats view includes non-archived root conversations with activity inside a configurable recency window
+      and includes currently running sessions regardless of age.
+    priority: must
+  R3:
+    statement: Selecting Active chats shows matching conversations across all filesystem workspaces.
+    priority: must
+  R4:
+    statement: The recency window defaults to 24 hours and persists locally when changed.
+    priority: must
+  R5:
+    statement: The built-in view cannot be renamed, deleted, reordered, or used as a manual assignment target.
+    priority: must
+source: User request and follow-up clarification
+notes: Subagent sessions remain grouped under their root conversation; archived roots remain excluded.
+version: 1
+feature: ACTIVE-CHAT-PROJECT

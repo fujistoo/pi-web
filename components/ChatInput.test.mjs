@@ -13,7 +13,7 @@ const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
 const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, compressImageFile, cycleListIndex, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand, modelSupportsImageInput, replaceLinksWithMarkdown, shouldCompressImageFile } = await jiti.import("./ChatInput.tsx");
 const { ModelSelector } = await jiti.import("./ModelSelector.tsx");
-const { clearDraft, getDraft, mergeRestoredSubmissionDraft, mergeRestoredSubmissionText, rekeyDraft, setDraft } = await jiti.import("@/lib/draft-store.ts");
+const { clearDraft, getDraft, mergeRestoredSubmissionDraft, mergeRestoredSubmissionText, rekeyDraft, restoreDraftSubmission, setDraft } = await jiti.import("@/lib/draft-store.ts");
 const { I18nProvider } = await jiti.import("@/hooks/useI18n");
 
 test("preserves pasted HTML links as Markdown without changing plain text layout", () => {
@@ -618,6 +618,42 @@ test("rekey keeps a synchronously restored draft when React state is still empty
   clearDraft(sessionKey);
 });
 
+test("preserves inline file metadata while rekeying a draft", () => {
+  const provisionalKey = "new:file-provisional";
+  const sessionKey = "file-session";
+  clearDraft(provisionalKey);
+  clearDraft(sessionKey);
+  setDraft(provisionalKey, { value: "@notes.md ", images: [], files: ["notes.md"] });
+
+  assert.deepEqual(rekeyDraft(provisionalKey, sessionKey), {
+    value: "@notes.md ",
+    images: [],
+    files: ["notes.md"],
+  });
+  clearDraft(sessionKey);
+});
+
+test("restores folder metadata and deduplicates rekeyed file metadata", () => {
+  const key = "folder-draft";
+  clearDraft(key);
+  setDraft(key, { value: "@nested/ ", images: [], files: ["nested/"] });
+  assert.deepEqual(restoreDraftSubmission(key, "retry"), {
+    value: "retry\n\n@nested/ ",
+    images: [],
+    files: ["nested/"],
+  });
+
+  const nextKey = "folder-draft-next";
+  clearDraft(nextKey);
+  setDraft(nextKey, { value: "@nested/ ", images: [], files: ["nested/"] });
+  assert.deepEqual(rekeyDraft(key, nextKey), {
+    value: "@nested/ \n\nretry\n\n@nested/ ",
+    images: [],
+    files: ["nested/"],
+  });
+  clearDraft(nextKey);
+});
+
 test("renders compact errors above the input as a wrapping alert", () => {
   const error = "Compaction failed: OpenAI API error (403): <html>request forbidden</html>";
   const html = renderToStaticMarkup(
@@ -698,4 +734,23 @@ test("renders image warnings for known text-only defaults without an explicit mo
   } finally {
     clearDraft(draftKey);
   }
+});
+
+test("uses a real inline editor for dropped file tokens", () => {
+  const source = readFileSync(new URL("./ChatInput.tsx", import.meta.url), "utf8");
+  assert.match(source, /contentEditable/);
+  assert.match(source, /serializeInlineEditor/);
+  assert.match(source, /dataset\.attachmentAlias/);
+  assert.match(source, /dataset\.filePath/);
+  assert.match(source, /onOpenFile\?\.\(path\)/);
+  assert.doesNotMatch(source, /aria-hidden=\"true\"[\\s\\S]*attachment/);
+});
+
+test("keeps token editing and selection keyboard-safe", () => {
+  const source = readFileSync(new URL("./ChatInput.tsx", import.meta.url), "utf8");
+  assert.match(source, /removeAdjacentInlineToken/);
+  assert.match(source, /current\.nodeType === Node\.TEXT_NODE\) total \+= offset/);
+  assert.match(source, /e\.key === \"Backspace\" \|\| e\.key === \"Delete\"/);
+  assert.match(source, /role=\"textbox\"/);
+  assert.doesNotMatch(source, /color: \"transparent\"/);
 });

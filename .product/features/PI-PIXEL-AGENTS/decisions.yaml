@@ -1,0 +1,107 @@
+version: 1
+feature: PI-PIXEL-AGENTS
+items:
+  - title: Host the live office in the session-level Agents panel
+    evidence:
+      - User-provided screenshot shows the intended top-toolbar Agents tab and dropdown.
+      - >-
+        components/AppShell.tsx routes the activeTopPanel "agents" state to AgentSessionPanel and its Open workspace
+        action to AgentWorkspace.
+      - components/SettingsPanel.tsx separately uses Settings → Agents for profile/configuration.
+    decision: >-
+      The Pixel Agents office is a read-only view reached from the existing session-level Agents top-toolbar panel shown
+      in the screenshot. It may augment or replace the current agent workspace after Milestone 0 inspects the renderer
+      boundary, but it must not be placed in Settings → Agents.
+    rationale: >-
+      This uses the existing agent-family entry point, preserves current configuration semantics, and keeps the
+      animation view in the context where live subagents are already shown.
+    clarificationId: CLAR-001
+    affectedRequirements:
+      - R2
+      - R3
+      - R5
+    id: DEC-001
+    status: accepted
+    recorded_at: '2026-09-12T13:39:23.766Z'
+    version: 1
+    feature: PI-PIXEL-AGENTS
+  - title: Resolve the Agents destination clarification
+    evidence:
+      - User provided the screenshot identifying the top-toolbar Agents tab as the intended destination.
+    decision: >-
+      Use the existing session-level Agents top-toolbar panel and its workspace as the entry point for the live
+      read-only office. Keep Settings → Agents limited to profile and runtime configuration.
+    rationale: >-
+      The screenshot removes the placement ambiguity and keeps the visualization next to the live agent-family status
+      already shown there.
+    clarification_id: CLAR-001
+    affectedRequirements:
+      - R2
+      - R3
+      - R5
+    id: DEC-002
+    status: accepted
+    recorded_at: '2026-09-12T13:39:55.026Z'
+    version: 1
+    feature: PI-PIXEL-AGENTS
+  - id: DEC-003
+    title: Place visual mockups in Previews, not Agents
+    decision: >-
+      Keep the live read-only Pixel Agents office and real agent chats in the session-level Agents workspace. Move all
+      character-styling/design-study mockups to pi-web's existing side-panel Previews surface. Agents must not contain a
+      Mockups tab.
+    rationale: >-
+      Agents is for observing real Pi execution and child-session chats; mockups are exploratory design artifacts and
+      belong in the established preview surface. This preserves the separation between live runtime status and
+      speculative visual exploration.
+    evidence:
+      - 'User clarification: "lets ensure that mockups go into previews not within agents."'
+      - >-
+        components/AgentWorkspace.tsx currently renders a Mockups tab and PixelAgentsMockups inside the Agents
+        workspace.
+      - AppShell.tsx already owns the side-panel preview surface through LivePreviewPanel.
+    affectedRequirements:
+      - R2
+      - R3
+      - R5
+    status: accepted
+    recorded_at: '2026-09-12T17:11:21.545Z'
+    version: 1
+    feature: PI-PIXEL-AGENTS
+  - id: DEC-004
+    title: Scope the embedded office to the selected session family
+    decision: >-
+      The pi-web embedded Pixel Agents office must display only live child agents descended from the selected session
+      root. It must not display root agents from other pi-web sessions or the selected parent agent itself, so an Agents
+      panel showing zero sub-agents also shows an empty office. Direct standalone Pixel Agents URLs remain global unless
+      a scope is explicitly supplied.
+    rationale: >-
+      The existing Agents workspace is session-level and counts child sessions, while the standalone server state is
+      project-global and persisted. Scoping the read-only embedded connection aligns the office with the panel's session
+      context without changing Pi execution or direct Pixel Agents behavior.
+    evidence:
+      - >-
+        Current pi-web UI showed 0 sub-agents while ~/.pixel-agents/standalone-state.json contained four external root
+        Pi sessions for the project.
+      - Requirements R2 and R5 require a session-level observational workspace.
+      - >-
+        components/AgentWorkspace.tsx currently receives the selected session family but PixelAgentsOffice did not pass
+        that identity to the standalone server.
+    affectedRequirements:
+      - R2
+      - R5
+    status: accepted
+    version: 1
+    recorded_at: '2026-09-13T04:10:41.949Z'
+    feature: PI-PIXEL-AGENTS
+  - title: Agents workspace is a toolbar-toggleable surface
+    decision: >-
+      Expose the Agents workspace as a direct toolbar toggle in addition to the existing Agents session switcher. It
+      remains available when no agents are spawned and may show its empty Pixel Agents state.
+    rationale: The workspace is a primary surface and should be discoverable without opening the session switcher first.
+    status: accepted
+    source: Direct user instruction
+    id: DEC-005
+    recorded_at: '2026-09-13T05:23:25.312Z'
+    version: 1
+    feature: PI-PIXEL-AGENTS

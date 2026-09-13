@@ -11,6 +11,8 @@ export interface ChatDraftImage {
 export interface ChatDraft {
   value: string;
   images: ChatDraftImage[];
+  /** Relative paths for inline file tokens (metadata only; files are not copied). */
+  files?: string[];
 }
 
 const drafts = new Map<string, ChatDraft>();
@@ -19,11 +21,12 @@ function cloneDraft(draft: ChatDraft): ChatDraft {
   return {
     value: draft.value,
     images: draft.images.map((image) => ({ ...image })),
+    ...(draft.files?.length ? { files: [...draft.files] } : {}),
   };
 }
 
 function isEmptyDraft(draft: ChatDraft): boolean {
-  return !draft.value && draft.images.length === 0;
+  return !draft.value && draft.images.length === 0 && !draft.files?.length;
 }
 
 export function getDraft(key: string): ChatDraft | null {
@@ -70,14 +73,19 @@ export function restoreDraftSubmission(
   key: string,
   text: string,
   images?: ChatDraftImage[],
+  files?: string[],
 ): ChatDraft {
   const current = getDraft(key) ?? { value: "", images: [] };
-  const restored = mergeRestoredSubmissionDraft(
+  const restoredBase = mergeRestoredSubmissionDraft(
     text,
     images,
     current.value,
     current.images,
   );
+  const restoredFiles = [...new Set([...(files ?? []), ...(current.files ?? [])])];
+  const restored = restoredFiles.length
+    ? { ...restoredBase, files: restoredFiles }
+    : restoredBase;
   setDraft(key, restored);
   return restored;
 }
@@ -97,8 +105,14 @@ export function rekeyDraft(
   clearDraft(previousKey);
   if (!previous) return next;
 
+  const mergedFiles = next
+    ? [...new Set([...(next.files ?? []), ...(previous.files ?? [])])]
+    : [];
   const merged = next
-    ? mergeRestoredSubmissionDraft(next.value, next.images, previous.value, previous.images)
+    ? {
+        ...mergeRestoredSubmissionDraft(next.value, next.images, previous.value, previous.images),
+        ...(mergedFiles.length ? { files: mergedFiles } : {}),
+      }
     : previous;
   setDraft(nextKey, merged);
   return cloneDraft(merged);

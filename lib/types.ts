@@ -347,6 +347,12 @@ export interface SessionInfo {
   transient?: boolean;
 }
 
+export interface SessionHistoryInput {
+  entryId: string;
+  text: string;
+  timestamp?: number;
+}
+
 export interface SessionContext {
   messages: AgentMessage[];
   entryIds: string[]; // parallel to messages — the session entry id for each message
@@ -354,4 +360,6 @@ export interface SessionContext {
   hasMore: boolean;
   thinkingLevel: string;
   model: { provider: string; modelId: string } | null;
+  /** Lightweight active-branch user-input index; full message bodies remain paged. */
+  historyInputs: SessionHistoryInput[];
 }

@@ -1,0 +1,17 @@
+reuse_map:
+  extend:
+    - >-
+      Existing SessionSidebar Projects section, chat project selection state, session-family grouping, running-session
+      polling, and localStorage persistence.
+  reuse_components:
+    - filterSessionsForChatProject
+    - listSessionFamilies
+    - chatProjectButtonStyle
+    - runningSessionIds
+  new_gap:
+    - Virtual built-in Active chats project with configurable recency filtering.
+annotations:
+  - Built-in project is display-only and does not enter persisted manual project assignments.
+  - Window configuration uses a native select and localStorage; default is 24 hours.
+version: 1
+feature: ACTIVE-CHAT-PROJECT
