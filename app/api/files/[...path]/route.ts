@@ -20,9 +20,11 @@ import { resolveDirentIsDirectory } from "@/lib/file-dirent";
 import { isFilePathReferencedBySession } from "@/lib/session-file-references";
 import { isApiRequestAllowed } from "@/lib/request-security";
 import {
+  ensureUploadParentDirectory,
   inspectUploadTargets,
   parseUploadConflictStrategy,
   validateUploadFileNames,
+  writeUploadFile,
 } from "@/lib/file-upload";
 import { parseFormDataWithinLimit, RequestBodyTooLargeError } from "@/lib/bounded-form-data";
 import { filePathFromApiSegments, samePath } from "@/lib/paths";
@@ -41,6 +43,7 @@ type FileRequestType = typeof FILE_REQUEST_TYPES[number];
 const FILE_REQUEST_TYPE_SET = new Set<string>(FILE_REQUEST_TYPES);
 const MAX_UPLOAD_FILE_BYTES = 25 * 1024 * 1024;
 const MAX_UPLOAD_TOTAL_BYTES = 100 * 1024 * 1024;
+const MAX_UPLOAD_ENTRIES = 10_000;
 // Multipart boundaries and headers are not file bytes, but must be bounded too.
 const MAX_UPLOAD_REQUEST_BYTES = MAX_UPLOAD_TOTAL_BYTES + 1024 * 1024;
 
@@ -162,6 +165,9 @@ export async function POST(
       throw error;
     }
     const files = formData.getAll("files").filter((entry): entry is File => typeof entry !== "string");
+    if (files.length > MAX_UPLOAD_ENTRIES) {
+      return NextResponse.json({ error: `Uploads may contain at most ${MAX_UPLOAD_ENTRIES} files` }, { status: 413 });
+    }
     if (files.some((file) => file.size > MAX_UPLOAD_FILE_BYTES)) {
       return NextResponse.json({ error: "Each upload must be 25MB or smaller" }, { status: 413 });
     }
@@ -190,7 +196,6 @@ export async function POST(
     const errors: Array<{ name: string; error: string }> = [];
 
     for (const file of files) {
-      const destination = path.join(directory, file.name);
       if (conflictSet.has(file.name) && strategy === "skip") {
         skipped.push(file.name);
         continue;
@@ -208,17 +213,9 @@ export async function POST(
         continue;
       }
 
-      if (conflictSet.has(file.name)) {
-        try {
-          fs.unlinkSync(destination);
-        } catch (error) {
-          errors.push({ name: file.name, error: error instanceof Error ? error.message : String(error) });
-          continue;
-        }
-      }
-
       try {
-        fs.writeFileSync(destination, bytes, { flag: "wx" });
+        const destination = ensureUploadParentDirectory(directory, file.name);
+        writeUploadFile(destination, bytes, conflictSet.has(file.name));
         uploaded.push(file.name);
       } catch (error) {
         errors.push({ name: file.name, error: error instanceof Error ? error.message : String(error) });

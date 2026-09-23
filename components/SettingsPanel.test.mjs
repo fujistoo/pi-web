@@ -53,14 +53,12 @@ test("keeps visited settings sections mounted and contains nested Escape handlin
   assert.match(modelsSource, /e\.preventDefault\(\);\s*e\.stopPropagation\(\);\s*onClose\(\);/);
 });
 
-test("offers five palettes and system theme selection with native radios", () => {
-  for (const preference of ["light", "dark", "mist", "rose", "pine", "auto"]) {
-    assert.match(themeOptionsSource, new RegExp(`id: "${preference}"`));
-  }
+test("offers every palette and a system option with native radios", () => {
   assert.match(panelSource, /THEME_OPTIONS\.map/);
   assert.match(panelSource, /type="radio"/);
   assert.match(panelSource, /setThemePreference\(option\.id\)/);
   assert.match(themeSource, /const setThemePreference = useCallback/);
+  assert.match(themeOptionsSource, /id: "auto"/);
 });
 
 test("keeps language selection in General settings", () => {

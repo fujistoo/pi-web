@@ -1,0 +1,412 @@
+.workspace {
+  background: var(--bg);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 620px;
+  width: 100%;
+}
+
+.header {
+  align-items: flex-end;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  gap: 20px;
+  justify-content: space-between;
+  padding: 18px 20px;
+}
+
+.title {
+  font-size: 24px;
+  letter-spacing: -.03em;
+  line-height: 1;
+  margin: 0;
+}
+
+.eyebrow,
+.summary,
+.mono {
+  font-family: var(--font-mono);
+}
+
+.eyebrow {
+  color: var(--text-muted);
+  font-size: 10px;
+  letter-spacing: .09em;
+  margin: 0 0 6px;
+  text-transform: uppercase;
+}
+
+.headerActions {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.summary {
+  color: var(--text-muted);
+  font-size: 11px;
+  margin: 0;
+}
+
+.input,
+.button {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  min-height: 36px;
+}
+
+.input {
+  min-width: 180px;
+  padding: 0 10px;
+}
+
+.input:focus {
+  border-color: var(--text);
+  outline: none;
+}
+
+.button {
+  cursor: pointer;
+  font-weight: 650;
+  letter-spacing: .07em;
+  padding: 0 12px;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.button:hover:not(:disabled) {
+  background: var(--text);
+  color: var(--bg);
+}
+
+.button:disabled {
+  color: var(--text-dim);
+  cursor: default;
+}
+
+.filterRail {
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  gap: 20px;
+  justify-content: space-between;
+  min-height: 46px;
+  padding: 7px 20px;
+}
+
+.filters,
+.roadmaps {
+  align-items: center;
+  display: flex;
+  gap: 5px;
+}
+
+.filter,
+.filterActive {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 6px 8px;
+}
+
+.filterActive {
+  background: var(--bg-selected);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.roadmaps {
+  border: 0;
+  color: var(--text-muted);
+  font: 10px var(--font-mono);
+  margin: 0;
+  padding: 0;
+}
+
+.roadmaps legend {
+  float: left;
+  letter-spacing: .08em;
+  margin-right: 6px;
+  text-transform: uppercase;
+}
+
+.roadmaps label {
+  align-items: center;
+  display: flex;
+  gap: 3px;
+}
+
+.split {
+  border-bottom: 1px solid var(--border);
+  display: grid;
+  flex: 1;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  min-height: 0;
+}
+
+.tableRegion {
+  min-width: 0;
+}
+
+.tableScroll {
+  height: 100%;
+  overflow: auto;
+}
+
+.table {
+  border-collapse: collapse;
+  min-width: 920px;
+  width: 100%;
+}
+
+.table th,
+.table td {
+  border-bottom: 1px solid var(--border);
+  padding: 9px 11px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.table th {
+  background: var(--bg-panel);
+  color: var(--text-dim);
+  font: 9px var(--font-mono);
+  letter-spacing: .08em;
+  position: sticky;
+  text-transform: uppercase;
+  top: 0;
+  white-space: nowrap;
+  z-index: 1;
+}
+
+.table td {
+  font-size: 12px;
+}
+
+.table tbody tr:hover,
+.table .inspected {
+  background: var(--bg-hover);
+}
+
+.rowButton {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+  text-align: left;
+}
+
+.rowButton:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.state {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font: 10px var(--font-mono);
+  padding: 3px 5px;
+  white-space: nowrap;
+}
+
+.bulkRail {
+  align-items: center;
+  background: var(--bg-selected);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  font: 11px var(--font-mono);
+  justify-content: space-between;
+  padding: 9px 12px;
+}
+
+.bulkRail span:last-child {
+  display: flex;
+  gap: 12px;
+}
+
+.bulkRail button {
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  cursor: pointer;
+  font: 650 10px var(--font-mono);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.inspector {
+  background: var(--bg-panel);
+  border-left: 1px solid var(--border);
+  min-width: 0;
+  overflow: auto;
+  padding: 20px;
+}
+
+.inspector h2 {
+  font-size: 20px;
+  line-height: 1.15;
+  margin: 0 0 22px;
+}
+
+.inspector dl {
+  margin: 0 0 20px;
+}
+
+.inspector dl div {
+  border-top: 1px solid var(--border);
+  padding: 10px 0;
+}
+
+.inspector dt {
+  color: var(--text-dim);
+  font: 9px var(--font-mono);
+  letter-spacing: .08em;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+
+.inspector dd {
+  font-size: 12px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.inspector a {
+  color: var(--text);
+}
+
+.fullWidth {
+  margin-top: 8px;
+  width: 100%;
+}
+
+.note,
+.empty,
+.error {
+  font: 11px/1.5 var(--font-mono);
+}
+
+.note {
+  color: var(--text-muted);
+}
+
+.empty {
+  color: var(--text-muted);
+  padding: 40px;
+  text-align: center;
+}
+
+.error {
+  background: var(--user-bg);
+  border-bottom: 1px solid var(--border);
+  margin: 0;
+  padding: 9px 12px;
+}
+
+.workLinker {
+  border-top: 1px solid var(--border);
+  margin-top: 20px;
+  padding-top: 16px;
+}
+
+.workSearch {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.workSearch .input {
+  min-width: 0;
+  width: 100%;
+}
+
+.workPicker {
+  border: 1px solid var(--border);
+  margin-top: 10px;
+  padding: 6px;
+}
+
+.workResult,
+.workResultSelected {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text);
+  cursor: pointer;
+  display: block;
+  padding: 8px;
+  text-align: left;
+  width: 100%;
+}
+
+.workResult:hover,
+.workResultSelected {
+  background: var(--bg-selected);
+  border-color: var(--border);
+}
+
+.workResult span,
+.workResultSelected span,
+.workResult small,
+.workResultSelected small {
+  display: block;
+  margin-top: 3px;
+}
+
+.workResult small,
+.workResultSelected small {
+  color: var(--text-muted);
+}
+
+@media (max-width: 900px) {
+  .header,
+  .headerActions,
+  .filterRail {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .headerActions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .summary {
+    grid-column: 1 / -1;
+  }
+
+  .filters,
+  .roadmaps {
+    flex-wrap: wrap;
+  }
+
+  .split {
+    display: block;
+    overflow: auto;
+  }
+
+  .tableRegion {
+    min-height: 360px;
+  }
+
+  .inspector {
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button {
+    transition: none;
+  }
+}

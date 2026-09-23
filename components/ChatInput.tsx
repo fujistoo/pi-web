@@ -242,6 +242,7 @@ export interface ChatInputHandle {
   focusInput: () => void;
   insertIfEmpty: (text: string) => void;
   replaceMessage: (message: UserMessage) => void;
+  clearIfValue: (text: string) => void;
   prependText: (text: string) => void;
   addImages: (files: File[]) => void;
   addFiles: (files: AttachedFileInput[]) => void;
@@ -540,6 +541,14 @@ export function canRestoreUserMessage(
   pendingImageCount: number,
 ): boolean {
   return !value.trim() && attachedImageCount === 0 && pendingImageCount === 0;
+}
+
+/**
+ * True when the composer still holds exactly the text "edit from here" put
+ * there, so cancelling can clear it without dropping a draft the user typed.
+ */
+export function shouldClearRestoredEdit(current: string, restored: string): boolean {
+  return Boolean(restored.trim()) && current.trim() === restored.trim();
 }
 
 export function getUserMessageText(message: UserMessage): string {
@@ -924,6 +933,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         ta.style.height = "auto";
         ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
       });
+    },
+    // Cancelling "edit from here" drops the restored text only while the
+    // composer still holds exactly it, so a draft the user typed is never lost.
+    clearIfValue(text: string) {
+      if (shouldClearRestoredEdit(valueRef.current, text)) clearInput();
     },
     prependText(text: string) {
       if (!text.trim()) return;

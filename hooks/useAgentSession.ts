@@ -1131,6 +1131,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // through the same settlement path used by non-streaming prompts.
   const reconcileAgentState = useCallback(async (sid: string) => {
     if (!agentRunningRef.current || sessionIdRef.current !== sid) return;
+    // A prompt RPC that has not been answered yet has not reached the worker,
+    // so an idle snapshot taken now describes the state *before* our prompt.
+    // Ending the run here drops the optimistic message (a brand-new session
+    // still serves an empty history) until the RPC returns, which is how the
+    // first message of a new chat disappeared for as long as the worker took
+    // to start. Once the run has begun, an idle server is the real signal the
+    // reconcile is looking for.
+    if (rpcPromptPendingRef.current && !sdkAgentActiveRef.current) return;
     const runId = promptRunIdRef.current;
     try {
       const res = await fetch(`/api/agent/${encodeURIComponent(sid)}`);

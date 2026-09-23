@@ -10,7 +10,7 @@ import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-fi
 import { buildQuotedSelection } from "@/lib/quoted-selection";
 import { MessageView } from "./MessageView";
 import { MarkdownBody } from "./MarkdownBody";
-import { ChatInput, type ChatInputHandle } from "./ChatInput";
+import { ChatInput, getUserMessageText, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
 import { AnsiText } from "./AnsiText";
@@ -348,8 +348,15 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     onAgentEnd?.();
   }, [completionNotificationsEnabled, onAgentEnd]);
 
+  // Cancel target for "Edit from here": the leaf the session was on before the
+  // rewind, captured once so repeated clicks cannot nest. Cleared once a run
+  // starts, because that send is what commits the new branch.
+  const [branchEdit, setBranchEdit] = useState<{ previousLeafId: string | null } | null>(null);
+  const editedTextRef = useRef("");
+
   // 稳定化 onEditContent 引用，配合 React.memo 防止历史消息重渲染
   const handleEditContent = useCallback((message: UserMessage) => {
+    editedTextRef.current = getUserMessageText(message);
     chatInputRef?.current?.replaceMessage(message);
   }, [chatInputRef]);
 
@@ -384,6 +391,30 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     deferInitialScroll: Boolean(pendingScrollRestore),
   });
   const sessionBusy = agentRunning || bashRunning;
+
+  const handleEditFromHere = useCallback((entryId: string) => {
+    const previousLeafId = activeLeafId;
+    return handleNavigate(entryId).then((navigated) => {
+      if (navigated) setBranchEdit((current) => current ?? { previousLeafId });
+      return navigated;
+    });
+  }, [activeLeafId, handleNavigate]);
+
+  const cancelBranchEdit = useCallback(() => {
+    const previousLeafId = branchEdit?.previousLeafId ?? null;
+    setBranchEdit(null);
+    chatInputRef?.current?.clearIfValue(editedTextRef.current);
+    // ponytail: pi has no "leaf = user message" state, so cancelling out of an
+    // unanswered prompt tail drops that prompt from the branch view. It stays
+    // in the session file and is reachable from the branch navigator.
+    if (previousLeafId) void handleNavigate(previousLeafId);
+  }, [branchEdit, chatInputRef, handleNavigate]);
+
+  // A started run is what commits the branch, so the cancel affordance goes away.
+  useEffect(() => {
+    if (agentRunning) setBranchEdit(null);
+  }, [agentRunning]);
+
   const [quotedSelection, setQuotedSelection] = useState<{
     text: string;
     top: number;
@@ -1262,7 +1293,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                     onFork={sessionBusy || isNew ? undefined : handleFork}
                     onBranchInNewChat={sessionBusy || isNew ? undefined : branchMessageInNewChat}
                     forking={forkingEntryId === entryIds[idx] || branchingEntryId === entryIds[idx]}
-                    onNavigate={sessionBusy ? undefined : handleNavigate}
+                    onNavigate={sessionBusy ? undefined : handleEditFromHere}
                     onEditContent={handleEditContent}
                     showTimestamp={showTimestamp}
                     prevTimestamp={idx > 0 ? (messages[idx - 1] as AgentMessage & { timestamp?: number }).timestamp : undefined}
@@ -1584,6 +1615,33 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                   pi <span style={{ color: "var(--text)" }}>v{process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}</span>
                 </span>
               </div>
+            </div>
+          </div>
+        )}
+        {branchEdit && (
+          <div className="mx-auto mb-2 w-full" style={{ maxWidth: "var(--chat-content-max-width, 820px)", paddingLeft: 32, paddingRight: isMobile ? 32 : 68 }}>
+            <div style={{
+              display: "flex", alignItems: "center", gap: 8,
+              padding: "4px 10px",
+              border: "1px solid rgba(37,99,235,0.28)", background: "rgba(37,99,235,0.06)",
+              borderRadius: 6, fontSize: 12, color: "var(--text-dim)",
+            }}>
+              <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {t("i18n.editingFromHere")}
+              </span>
+              <button
+                type="button"
+                disabled={sessionBusy}
+                onClick={cancelBranchEdit}
+                style={{
+                  flexShrink: 0, padding: "2px 10px",
+                  border: "1px solid var(--border)", borderRadius: 5, background: "none",
+                  color: sessionBusy ? "var(--text-dim)" : "var(--text)",
+                  fontSize: 12, cursor: sessionBusy ? "not-allowed" : "pointer",
+                }}
+              >
+                {t("i18n.cancel")}
+              </button>
             </div>
           </div>
         )}

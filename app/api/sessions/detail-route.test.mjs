@@ -24,6 +24,9 @@ test("detail route parses ?tail: default 50, NaN-safe, capped at 1000", () => {
   assert.match(routeSrc, /computeSessionStats\(entries as unknown as SessionEntry\[\]\)/);
   assert.match(routeSrc, /messageCount: stats\.totalMessages/);
   assert.match(routeSrc, /stats,/);
+  // A worker snapshot must not be treated as "leaf = last entry"; navigate_tree
+  // rewinds the worker's leaf without appending, so the route has to read it.
+  assert.match(routeSrc, /liveSnapshot && "leafId" in liveSnapshot \? liveSnapshot\.leafId : sm\.getLeafId\(\)/);
 });
 
 test("detail route bounds history to the tail window (default 50 over 5000 entries)", () => {

@@ -52,6 +52,7 @@ export async function GET(
           sessionFile?: string;
           cwd: string;
           entries: unknown[];
+          leafId?: string | null;
           running?: boolean;
         }
       : null;
@@ -72,7 +73,11 @@ export async function GET(
     const liveRunning = liveSnapshot?.running ?? liveRpc?.isRunning() ?? false;
     const filePath = liveSnapshot?.sessionFile || liveRpc?.sessionFile || sm.getSessionFile() || resolvedPath || "";
     const entries = sm.getEntries();
-    const leafId = sm.getLeafId();
+    // The worker rebuilds this in-memory manager from `entries`, so getLeafId()
+    // always answers with the last entry and loses a navigate_tree rewind. Take
+    // the worker's own leaf when it reports one (null = rewound before the first
+    // entry), and fall back only for a worker that predates the field.
+    const leafId = liveSnapshot && "leafId" in liveSnapshot ? liveSnapshot.leafId : sm.getLeafId();
     const tree = projectTreeForResponse(sm.getTree());
     const searchParams = new URL(req.url).searchParams;
     const deferThinking = searchParams.has("deferThinking");

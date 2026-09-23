@@ -20,6 +20,7 @@ const SESSION_HEADER_MAX_BYTES = 64 * 1024;
 const SESSION_RELATION_MAX_BYTES = 256 * 1024;
 const SESSION_RELATION_MAX_LINES = 2;
 const SESSION_RESULT_MAX_BYTES = 256 * 1024;
+const SESSION_TAIL_PROBE_MAX_BYTES = 64 * 1024;
 
 function readBoundedLines(filePath: string, maxBytes: number, maxLines: number): string[] {
   const fd = openSync(filePath, "r");
@@ -80,6 +81,29 @@ function readBoundedTailLines(filePath: string, maxBytes: number): string[] {
   } finally {
     closeSync(fd);
   }
+}
+
+function readEntryId(line: string): string | undefined {
+  try {
+    const entry = JSON.parse(line) as { type?: unknown; id?: unknown };
+    return entry.type !== "session" && typeof entry.id === "string" && entry.id ? entry.id : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function readLatestSessionEntryId(filePath: string | undefined): string | undefined {
+  if (!filePath) return undefined;
+  try {
+    const lines = readBoundedTailLines(filePath, SESSION_TAIL_PROBE_MAX_BYTES);
+    for (let index = lines.length - 1; index >= 0; index -= 1) {
+      const entryId = readEntryId(lines[index]);
+      if (entryId) return entryId;
+    }
+  } catch {
+    // The file may be concurrently created or removed.
+  }
+  return undefined;
 }
 
 function parseSessionEntries(lines: readonly string[]): SessionEntry[] {
@@ -194,14 +218,17 @@ async function loadAllSessions(): Promise<SessionInfo[]> {
   return attachSessionProjectInfo(sessions);
 }
 
-export async function listAllSessions(options: { force?: boolean } = {}): Promise<SessionInfo[]> {
+export async function listAllSessions(options: { force?: boolean; allowStale?: boolean } = {}): Promise<SessionInfo[]> {
   if (options.force) invalidateSessionListCache();
   const generation = globalThis.__piSessionListGeneration ?? 0;
 
-  // Return cached result if still fresh (avoids re-scanning session files
-  // and re-spawning git processes on every page load).
-  if (globalThis.__piSessionListCache && Date.now() - globalThis.__piSessionListCache.ts < SESSION_LIST_CACHE_TTL_MS) {
-    return globalThis.__piSessionListCache.data;
+  const cache = globalThis.__piSessionListCache;
+  if (cache && Date.now() - cache.ts < SESSION_LIST_CACHE_TTL_MS) {
+    return cache.data;
+  }
+  if (options.allowStale && cache) {
+    void listAllSessions().catch(() => undefined);
+    return cache.data;
   }
 
   // Coalescing dedup: concurrent callers share the same in-flight promise
@@ -640,6 +667,7 @@ function entryToUiMessage(
   // normalizeToolCalls is a secondary guard (returns non-assistant messages as-is).
   switch (entry.type) {
     case "message": {
+      if (entry.message.role === "system") return null;
       let message = options.deferToolResultImages
         ? deferToolResultBase64Images(normalizeToolCalls(entry.message), options.sessionId, entry.id)
         : normalizeToolCalls(entry.message);

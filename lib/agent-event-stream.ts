@@ -22,6 +22,16 @@ export interface AgentEventStreamSession {
 }
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
+const CLOSER_REGISTRY: symbol = Symbol.for("pi-web.agentEventStreamClosers");
+type StreamCloser = (closeController: boolean | "error") => void;
+const activeStreamClosers: Set<StreamCloser> =
+  ((globalThis as Record<symbol, Set<StreamCloser>>)[CLOSER_REGISTRY] ??= new Set<StreamCloser>());
+
+export function closeAllAgentEventStreams(): void {
+  for (const close of [...activeStreamClosers]) {
+    try { close("error"); } catch { /* stream already closed */ }
+  }
+}
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -36,7 +46,7 @@ export function createAgentEventStream(
   sessionId: string,
   sessionPromise: Promise<AgentEventStreamSession>,
 ): ReadableStream<Uint8Array> {
-  let cancelStream: (closeController: boolean) => void = () => {};
+  let cancelStream: (closeController: boolean | "error") => void = () => {};
   let releaseLease: () => void = () => {};
 
   return new ReadableStream<Uint8Array>({
@@ -47,21 +57,25 @@ export function createAgentEventStream(
       let unsubscribe: (() => void) | null = null;
       let abortHandler: (() => void) | null = null;
 
-      const cleanup = (closeController: boolean) => {
+      const cleanup = (closeController: boolean | "error") => {
         if (closed) return;
         closed = true;
         releaseLease();
         releaseLease = () => {};
+        activeStreamClosers.delete(cleanup);
         if (heartbeat !== null) clearInterval(heartbeat);
         unsubscribe?.();
         unsubscribe = null;
         if (abortHandler) req.signal.removeEventListener("abort", abortHandler);
-        if (closeController) {
+        if (closeController === "error") {
+          try { controller.error(new Error("pi-web server shutting down")); } catch { /* already closed */ }
+        } else if (closeController) {
           try { controller.close(); } catch { /* stream already closed */ }
         }
       };
       cancelStream = cleanup;
       releaseLease = acquireSessionLivenessLease(sessionId).release;
+      activeStreamClosers.add(cleanup);
 
       const enqueueText = (text: string) => {
         if (closed) return;

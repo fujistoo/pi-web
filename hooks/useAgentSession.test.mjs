@@ -68,6 +68,10 @@ test("a rejected submission preserves a different run reported by the server", (
   assert.match(reconcileSource, /if \(busy\) \{[\s\S]*?sdkAgentActiveRef\.current = Boolean\(state\.isStreaming\)/);
   assert.match(reconcileSource, /rpcPromptPendingRef\.current = Boolean\(state\.isPromptRunning\)/);
   assert.match(reconcileSource, /if \(!agentRunningRef\.current\) return;[\s\S]*?finishPromptWithoutStream/);
+  // An unanswered prompt RPC means the worker has not seen the prompt yet, so
+  // an idle snapshot describes the state before it: ending the run there hid
+  // the first message of a new chat until the RPC returned.
+  assert.match(reconcileSource, /if \(rpcPromptPendingRef\.current && !sdkAgentActiveRef\.current\) return;/);
 });
 
 test("opening System or Tools lazily starts a dormant session without sending a prompt", () => {
