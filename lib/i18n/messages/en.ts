@@ -530,6 +530,8 @@ export const enLocale: LocalePlugin = {
     "i18n.zoomOut": "Zoom out",
     "i18n.zoomIn": "Zoom in",
     "i18n.fitToWidth": "Fit to width",
+    "i18n.disableSyntaxHighlighting": "Disable syntax highlighting",
+    "i18n.enableSyntaxHighlighting": "Highlight syntax in this large file",
     "models.discoveryFetching": "Importing models…",
     "models.discoveryFetch": "Import models…",
     "models.discoveryFilterPlaceholder": "Filter {count} models…",

@@ -530,6 +530,8 @@ export const zhCNLocale: LocalePlugin = {
     "i18n.zoomOut": "缩小",
     "i18n.zoomIn": "放大",
     "i18n.fitToWidth": "适应宽度",
+    "i18n.disableSyntaxHighlighting": "停用语法高亮",
+    "i18n.enableSyntaxHighlighting": "为这个大文件启用语法高亮",
     "models.discoveryFetching": "正在导入模型…",
     "models.discoveryFetch": "导入模型…",
     "models.discoveryFilterPlaceholder": "筛选 {count} 个模型…",
