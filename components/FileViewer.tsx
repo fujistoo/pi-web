@@ -23,6 +23,8 @@ import { parsePdfPageFragment, resolveLocalFileHref, shouldOpenLocalFileInApp } 
 import { parseFrontmatter } from "@/lib/frontmatter";
 import { markdownPreviewRehypePlugins, markdownPreviewRemarkPlugins, markdownUrlTransform, normalizeDisplayMath } from "@/lib/markdown";
 import { CodeBlock, MermaidBlock } from "./MermaidBlock";
+import { PanZoomFrame } from "./PanZoomFrame";
+import { withPanZoomHtml } from "@/lib/pan-zoom";
 import { FrontmatterCard } from "./FrontmatterCard";
 import { parseUnifiedPatch } from "@/lib/patch";
 import type { GitFileDiffResponse } from "@/lib/git-types";
@@ -570,22 +572,25 @@ function ImageViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Pr
         {error ? (
           <div style={{ color: "#f87171", fontSize: 13 }}>{error}</div>
         ) : (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={src}
-            alt={filePath}
-            onLoad={(e) => {
-              const img = e.currentTarget;
-              setNaturalSize({ w: img.naturalWidth, h: img.naturalHeight });
-            }}
-            onError={() => setError("Failed to load image")}
-            style={{
-              maxWidth: "100%",
-              maxHeight: "100%",
-              objectFit: "contain",
-              boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-            }}
-          />
+          <PanZoomFrame>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={src}
+              alt={filePath}
+              onLoad={(e) => {
+                const img = e.currentTarget;
+                setNaturalSize({ w: img.naturalWidth, h: img.naturalHeight });
+              }}
+              onError={() => setError("Failed to load image")}
+              draggable={false}
+              style={{
+                maxWidth: "100%",
+                maxHeight: "100%",
+                objectFit: "contain",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+              }}
+            />
+          </PanZoomFrame>
         )}
       </div>
     </div>
@@ -1707,7 +1712,11 @@ function TextFileViewer({
           <DiffView patch={gitDiff.patch!} />
         ) : isHtml && effectiveDisplayMode === "preview" ? (
           <iframe
-            srcDoc={content}
+            srcDoc={withPanZoomHtml(content, {
+              zoomIn: t("i18n.zoomIn"),
+              zoomOut: t("i18n.zoomOut"),
+              reset: t("i18n.fitToWidth"),
+            })}
             sandbox="allow-scripts"
             style={{ width: "100%", height: "100%", border: "none", background: "var(--bg)" }}
              title={t("i18n.htmlPreview")}
