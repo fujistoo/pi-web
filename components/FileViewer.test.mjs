@@ -7,8 +7,10 @@ import ts from "typescript";
 const source = await readFile(new URL("./FileViewer.tsx", import.meta.url), "utf8");
 
 test("large source previews bypass the per-line syntax highlighter", () => {
-  assert.match(source, /const SOURCE_HIGHLIGHT_MAX_LINES = 1_000;/);
-  assert.match(source, /const useLightweightSource = sourceLines\.length > SOURCE_HIGHLIGHT_MAX_LINES/);
+  // The threshold and the lightweight/highlighted decision live in a tested
+  // module so the viewer and its tests cannot drift apart.
+  assert.match(source, /import \{ getSourceRenderMode, SOURCE_HIGHLIGHT_MAX_LINES \} from "@\/lib\/file-source-render-mode";/);
+  assert.match(source, /const useLightweightSource = getSourceRenderMode\(\{/);
 
   // Both source trees are memoized so unrelated re-renders (panel open/close,
   // selection changes) reuse them instead of rebuilding every line element.
@@ -32,7 +34,7 @@ test("large source previews bypass the per-line syntax highlighter", () => {
   assert.notEqual(source.indexOf("highlightedSource", branchStart), -1);
 });
 
-test("lightweight source rows are skipped for highlighted, diff, and preview views", () => {
+test("lightweight source rows are skipped for highlighted, diff, and preview views", async () => {
   // Execute the source-view calculations without mounting the file-fetching component.
   const file = ts.createSourceFile("FileViewer.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const viewer = file.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === "TextFileViewer");
@@ -41,15 +43,20 @@ test("lightweight source rows are skipped for highlighted, diff, and preview vie
       ["viewerContent", "sourceLines", "language", "isHtml", "isMarkdown", "hasPreview", "effectiveDisplayMode", "useLightweightSource", "lightweightSourceLines"].includes(declaration.name.getText(file)),
     ),
   ).map((node) => node.getText(file)).join("\n");
+  const { getSourceRenderMode } = await import("../lib/file-source-render-mode.ts");
   const { outputText } = ts.transpileModule(`
     return (data, displayMode, hasGitDiff = false, isDeletedDiff = false, wrapLines = false) => {
-      const SOURCE_HIGHLIGHT_MAX_LINES = 1_000;
+      const highlightLargeSource = false;
       const FILE_LINE_NUMBER_STYLE = {};
       ${calculations}
       return lightweightSourceLines;
     };
   `, { compilerOptions: { jsx: ts.JsxEmit.React } });
-  const render = new Function("React", "useMemo", outputText)(React, (calculate) => calculate());
+  const render = new Function("React", "useMemo", "getSourceRenderMode", outputText)(
+    React,
+    (calculate) => calculate(),
+    getSourceRenderMode,
+  );
   const large = { content: "line\n".repeat(1_000), language: "text" };
 
   assert.equal(render({ ...large, content: "line\n".repeat(999) }, "source"), null);
