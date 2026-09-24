@@ -12,9 +12,13 @@ export interface AtQueryMatch {
 }
 
 export interface FileIndexEntry {
-  /** Path relative to the session cwd, "/"-separated, no trailing slash */
+  /** Path to insert: cwd-relative for legacy entries, absolute for external roots. */
   path: string;
   isDir: boolean;
+  /** Present only for an entry from an explicit multi-root search. */
+  rootAlias?: string;
+  /** Root-relative path used with rootAlias for display and fuzzy matching. */
+  relativePath?: string;
 }
 
 /**
@@ -75,6 +79,26 @@ export function buildEntriesFromFiles(files: string[]): FileIndexEntry[] {
   return entries;
 }
 
+/** Build entries for an external search root while keeping insertable paths absolute. */
+export function buildEntriesFromSearchRoot(
+  files: string[],
+  rootPath: string,
+  rootAlias: string,
+): FileIndexEntry[] {
+  return buildEntriesFromFiles(files).map((entry) => ({
+    ...entry,
+    path: `${rootPath.replace(/[\\/]+$/, "")}/${entry.path}`,
+    rootAlias,
+    relativePath: entry.path,
+  }));
+}
+
+export function fileEntryDisplayPath(entry: FileIndexEntry): string {
+  return entry.rootAlias && entry.relativePath
+    ? `${entry.rootAlias}/${entry.relativePath}`
+    : entry.path;
+}
+
 function isSubsequence(needle: string, haystack: string): boolean {
   if (!needle) return true;
   let i = 0;
@@ -95,7 +119,7 @@ function isSubsequence(needle: string, haystack: string): boolean {
  * src directory itself, since "src" does not start with "src/").
  */
 function scoreEntry(entry: FileIndexEntry, lowerQuery: string): number {
-  const lowerPath = entry.path.toLowerCase();
+  const lowerPath = fileEntryDisplayPath(entry).toLowerCase();
   let score = 0;
   if (lowerQuery.includes("/")) {
     if (lowerPath === lowerQuery) score = 100;
@@ -133,7 +157,7 @@ export function filterFileEntries(
   scored.sort((a, b) =>
     b.score - a.score
     || pathDepth(a.entry.path) - pathDepth(b.entry.path)
-    || a.entry.path.localeCompare(b.entry.path));
+    || fileEntryDisplayPath(a.entry).localeCompare(fileEntryDisplayPath(b.entry)));
   return scored.slice(0, limit).map((s) => s.entry);
 }
 

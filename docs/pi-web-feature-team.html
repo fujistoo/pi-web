@@ -1,0 +1,173 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>pi-web feature team</title><link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--paper:#f5f5f5;--paper-2:#fff;--ink:#2d3142;--muted:#4f5d75;--soft:#7a8399;--rule:rgba(45,49,66,.12);--accent:#eb6c36;--accent-tint:rgba(235,108,54,.08);--link:#2e5aa8;--sans:'Geist',system-ui,sans-serif;--serif:'Instrument Serif',serif;--mono:'Geist Mono',ui-monospace,monospace}
+body{font-family:var(--sans);background:var(--paper);color:var(--ink);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:48px 32px}.frame{max-width:1180px;width:100%}.eyebrow{font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}h1{font-family:var(--serif);font-size:32px;font-weight:400;line-height:1.08;letter-spacing:-.02em;margin-bottom:20px}.subtitle{color:var(--muted);font-size:14px;line-height:1.5;max-width:760px;margin-bottom:24px}.subhead{font-size:14px;font-weight:600;margin:36px 0 4px}.subtitle.tight{margin-bottom:20px;font-size:13px}svg{width:100%;min-width:1040px;display:block}.cards{display:grid;grid-template-columns:1.05fr 1fr .95fr;gap:16px;margin-top:28px}.card{background:#fff;border:1px solid var(--rule);border-radius:6px;padding:16px}.card h2{font-size:14px;margin-bottom:8px}.card p{font-size:12px;line-height:1.45;color:var(--muted)}.card ul{list-style:none;font-size:12px;line-height:1.5;color:var(--muted)}.card li{padding-left:16px;position:relative}.card li::before{content:attr(data-n);position:absolute;left:0;font-family:var(--mono);font-size:9px;color:var(--soft);top:2px}.source{font-family:var(--mono);font-size:9px;color:var(--soft);margin-top:20px;line-height:1.6}@media(max-width:860px){body{display:block;padding:32px 20px}.cards{grid-template-columns:1fr;overflow:visible}.frame{overflow-x:auto}}
+</style></head><body><div class="frame"><p class="eyebrow">Org chart · Diagram Design</p><h1>pi-web feature team</h1><p class="subtitle">One lead per feature, spawned on demand, delegating to members it spawns itself. Members message each other directly; every escalation that reaches you is a blocking decision.</p><svg viewBox="0 0 1320 620" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="feature-team-title feature-team-desc">
+<title id="feature-team-title">pi-web feature team org chart</title><desc id="feature-team-desc">Org chart showing the operator at the top, one lead per feature below it, members under each lead, a sibling messaging channel between members, and an escalation callout listing the three reasons a lead may interrupt the operator.</desc>
+<rect width="1320" height="620" fill="#f5f5f5"/>
+<defs><marker id="ft-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#4f5d75"/></marker><marker id="ft-arrow-both" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#4f5d75"/></marker><marker id="ft-arrow-start" markerWidth="8" markerHeight="6" refX="1" refY="3" orient="auto"><polygon points="8 0,0 3,8 6" fill="#4f5d75"/></marker></defs>
+<text x="40" y="52" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="9" letter-spacing=".16em">FRONT DOOR</text>
+<text x="40" y="190" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="9" letter-spacing=".16em">LEAD — ONE PER FEATURE</text>
+<!-- connectors -->
+<path d="M 385 124 L 385 176 L 205 176 L 205 204" fill="none" stroke="#4f5d75" stroke-width="1"/>
+<path d="M 385 176 L 565 176 L 565 204" fill="none" stroke="#4f5d75" stroke-width="1"/>
+<path d="M 205 264 L 205 300 L 115 300 L 115 336" fill="none" stroke="#4f5d75" stroke-width="1"/>
+<path d="M 205 300 L 295 300 L 295 336" fill="none" stroke="#4f5d75" stroke-width="1"/>
+<path d="M 565 264 L 565 300 L 475 300 L 475 336" fill="none" stroke="#4f5d75" stroke-width="1"/>
+<path d="M 565 300 L 655 300 L 655 336" fill="none" stroke="#4f5d75" stroke-width="1"/>
+<path d="M 665 232 L 916 232" fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,4" marker-end="url(#ft-arrow)"/>
+<line x1="305" y1="232" x2="465" y2="232" stroke="#7a8399" stroke-width="1" stroke-dasharray="4,4"/>
+<text x="385" y="224" fill="#7a8399" font-family="'Geist Mono',monospace" font-size="8" text-anchor="middle">lead ↔ lead not wired</text>
+<text x="800" y="224" fill="#7a8399" font-family="'Geist Mono',monospace" font-size="8" text-anchor="middle">escalate</text>
+<!-- sibling channel -->
+<line x1="115" y1="468" x2="655" y2="468" stroke="#4f5d75" stroke-width="1" marker-start="url(#ft-arrow-start)" marker-end="url(#ft-arrow-both)"/>
+<line x1="115" y1="392" x2="115" y2="468" stroke="#4f5d75" stroke-width="1"/>
+<line x1="295" y1="392" x2="295" y2="468" stroke="#4f5d75" stroke-width="1"/>
+<line x1="475" y1="392" x2="475" y2="468" stroke="#4f5d75" stroke-width="1"/>
+<line x1="655" y1="392" x2="655" y2="468" stroke="#4f5d75" stroke-width="1"/>
+<text x="385" y="492" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="9" text-anchor="middle">sibling channel — direct, any member to any member</text>
+<text x="385" y="508" fill="#7a8399" font-family="'Geist Mono',monospace" font-size="9" text-anchor="middle">broker records every message before delivery</text>
+<!-- operator -->
+<rect x="285" y="68" width="200" height="56" rx="6" fill="rgba(235,108,54,.08)" stroke="#eb6c36"/>
+<rect x="293" y="76" width="52" height="12" rx="2" fill="transparent" stroke="#eb6c36" opacity=".55"/>
+<text x="319" y="85" fill="#eb6c36" font-family="'Geist Mono',monospace" font-size="9" text-anchor="middle" letter-spacing=".08em">OPERATOR</text>
+<text x="385" y="104" fill="#2d3142" font-family="'Geist',sans-serif" font-size="12" font-weight="600" text-anchor="middle">You</text>
+<text x="385" y="116" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="9" text-anchor="middle">spawn leads · answer decisions</text>
+<!-- leads -->
+<rect x="105" y="204" width="200" height="60" rx="6" fill="#ffffff" stroke="#2d3142"/>
+<rect x="113" y="212" width="32" height="12" rx="2" fill="transparent" stroke="#4f5d75" opacity=".45"/>
+<text x="129" y="221" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="9" text-anchor="middle" letter-spacing=".08em">LEAD</text>
+<text x="205" y="240" fill="#2d3142" font-family="'Geist',sans-serif" font-size="12" font-weight="600" text-anchor="middle">Feature A lead</text>
+<text x="205" y="252" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="9" text-anchor="middle">run · tasks · escalation</text>
+<rect x="465" y="204" width="200" height="60" rx="6" fill="#ffffff" stroke="#2d3142"/>
+<rect x="473" y="212" width="32" height="12" rx="2" fill="transparent" stroke="#4f5d75" opacity=".45"/>
+<text x="489" y="221" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="9" text-anchor="middle" letter-spacing=".08em">LEAD</text>
+<text x="565" y="240" fill="#2d3142" font-family="'Geist',sans-serif" font-size="12" font-weight="600" text-anchor="middle">Feature B lead</text>
+<text x="565" y="252" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="9" text-anchor="middle">run · tasks · escalation</text>
+<!-- members -->
+<rect x="40" y="336" width="150" height="56" rx="6" fill="rgba(45,49,66,.05)" stroke="#4f5d75" stroke-width=".8"/>
+<rect x="48" y="344" width="44" height="12" rx="2" fill="transparent" stroke="#4f5d75" opacity=".45"/>
+<text x="70" y="353" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="9" text-anchor="middle" letter-spacing=".08em">MEMBER</text>
+<text x="115" y="372" fill="#2d3142" font-family="'Geist',sans-serif" font-size="12" font-weight="600" text-anchor="middle">api</text>
+<text x="115" y="384" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="9" text-anchor="middle">writes src</text>
+<rect x="220" y="336" width="150" height="56" rx="6" fill="rgba(45,49,66,.05)" stroke="#4f5d75" stroke-width=".8"/>
+<rect x="228" y="344" width="44" height="12" rx="2" fill="transparent" stroke="#4f5d75" opacity=".45"/>
+<text x="250" y="353" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="9" text-anchor="middle" letter-spacing=".08em">MEMBER</text>
+<text x="295" y="372" fill="#2d3142" font-family="'Geist',sans-serif" font-size="12" font-weight="600" text-anchor="middle">ui</text>
+<text x="295" y="384" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="9" text-anchor="middle">writes src</text>
+<rect x="400" y="336" width="150" height="56" rx="6" fill="rgba(45,49,66,.05)" stroke="#4f5d75" stroke-width=".8"/>
+<rect x="408" y="344" width="44" height="12" rx="2" fill="transparent" stroke="#4f5d75" opacity=".45"/>
+<text x="430" y="353" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="9" text-anchor="middle" letter-spacing=".08em">MEMBER</text>
+<text x="475" y="372" fill="#2d3142" font-family="'Geist',sans-serif" font-size="12" font-weight="600" text-anchor="middle">docs</text>
+<text x="475" y="384" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="9" text-anchor="middle">writes docs</text>
+<rect x="580" y="336" width="150" height="56" rx="6" fill="rgba(45,49,66,.05)" stroke="#4f5d75" stroke-width=".8"/>
+<rect x="588" y="344" width="44" height="12" rx="2" fill="transparent" stroke="#4f5d75" opacity=".45"/>
+<text x="610" y="353" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="9" text-anchor="middle" letter-spacing=".08em">MEMBER</text>
+<text x="655" y="372" fill="#2d3142" font-family="'Geist',sans-serif" font-size="12" font-weight="600" text-anchor="middle">qa</text>
+<text x="655" y="384" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="9" text-anchor="middle">verifies, read-only</text>
+<!-- escalation callout -->
+<rect x="920" y="124" width="360" height="240" rx="6" fill="rgba(45,49,66,.03)" stroke="#4f5d75" stroke-width="1"/>
+<text x="936" y="152" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="9" letter-spacing=".16em">ESCALATION → YOU</text>
+<text x="936" y="184" fill="#2d3142" font-family="'Geist Mono',monospace" font-size="9">need_decision</text>
+<text x="1090" y="184" fill="#4f5d75" font-family="'Geist',sans-serif" font-size="10">blocks the run until answered</text>
+<text x="936" y="204" fill="#2d3142" font-family="'Geist Mono',monospace" font-size="9">interview_request</text>
+<text x="1090" y="204" fill="#4f5d75" font-family="'Geist',sans-serif" font-size="10">batch of structured questions</text>
+<text x="936" y="224" fill="#2d3142" font-family="'Geist Mono',monospace" font-size="9">progress_update</text>
+<text x="1090" y="224" fill="#4f5d75" font-family="'Geist',sans-serif" font-size="10">non-blocking; logged only</text>
+<line x1="936" y1="248" x2="1264" y2="248" stroke="rgba(45,49,66,.12)"/>
+<text x="936" y="276" fill="#4f5d75" font-family="'Geist',sans-serif" font-size="11">members ask their lead first;</text>
+<text x="936" y="294" fill="#4f5d75" font-family="'Geist',sans-serif" font-size="11">only hard blockers reach you.</text>
+<text x="936" y="312" fill="#4f5d75" font-family="'Geist',sans-serif" font-size="11">leads resolve the rest and record it.</text>
+<!-- legend -->
+<line x1="40" y1="560" x2="1280" y2="560" stroke="rgba(45,49,66,.12)"/>
+<text x="40" y="586" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="9" letter-spacing=".14em">LEGEND</text>
+<rect x="132" y="576" width="16" height="12" rx="2" fill="rgba(235,108,54,.08)" stroke="#eb6c36"/>
+<text x="156" y="586" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="9">front door (operator)</text>
+<rect x="300" y="576" width="16" height="12" rx="2" fill="#ffffff" stroke="#2d3142"/>
+<text x="324" y="586" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="9">lead / member</text>
+<line x1="440" y1="582" x2="472" y2="582" stroke="#4f5d75" stroke-width="1" marker-start="url(#ft-arrow-start)" marker-end="url(#ft-arrow-both)"/>
+<text x="488" y="586" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="9">sibling channel</text>
+<line x1="620" y1="582" x2="652" y2="582" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,4" marker-end="url(#ft-arrow)"/>
+<text x="668" y="586" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="9">escalation route</text>
+<rect x="790" y="576" width="16" height="12" rx="2" fill="none" stroke="#7a8399" stroke-dasharray="4,4"/>
+<text x="814" y="586" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="9">not wired</text>
+</svg>
+<h2 class="subhead">Feature run lifecycle</h2>
+<p class="subtitle tight">A run moves from delegation through recovery, and ends only when you confirm completion — decommissioning removes the runtime and keeps the record.</p>
+<svg viewBox="0 0 1320 440" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="lifecycle-title lifecycle-desc">
+<title id="lifecycle-title">Feature run lifecycle</title><desc id="lifecycle-desc">State diagram of a feature run moving from planned through fanout to synthesis and completion, with a wait band where blocked tasks retry or escalate to the operator, ending in a terminal decommission that keeps the record.</desc>
+<rect width="1320" height="440" fill="#f5f5f5"/>
+<text x="40" y="84" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="9" letter-spacing=".16em">PROGRESS</text>
+<line x1="40" y1="96" x2="240" y2="96" stroke="rgba(45,49,66,.12)"/>
+<text x="40" y="244" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="9" letter-spacing=".16em">WAIT / RECOVERY</text>
+<line x1="40" y1="256" x2="240" y2="256" stroke="rgba(45,49,66,.12)"/>
+<!-- start -->
+<circle cx="60" cy="156" r="6" fill="#2d3142"/>
+<path d="M 68 156 L 92 156" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#ft-arrow)"/>
+<!-- transitions, progress band -->
+<path d="M 268 156 L 340 156" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#ft-arrow)"/>
+<text x="304" y="148" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="8" text-anchor="middle">tasks ready</text>
+<path d="M 516 156 L 588 156" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#ft-arrow)"/>
+<text x="552" y="148" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="8" text-anchor="middle">all complete</text>
+<path d="M 764 156 L 836 156" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#ft-arrow)"/>
+<text x="800" y="148" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="8" text-anchor="middle">gates pass</text>
+<path d="M 1012 156 L 1084 156" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#ft-arrow)"/>
+<text x="1048" y="148" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="8" text-anchor="middle">you confirm</text>
+<line x1="1260" y1="156" x2="1264" y2="156" stroke="#4f5d75" stroke-width="1"/>
+<circle cx="1272" cy="156" r="8" fill="none" stroke="#2d3142" stroke-width="1"/>
+<circle cx="1272" cy="156" r="5" fill="#2d3142"/>
+<!-- progress states -->
+<rect x="92" y="124" width="176" height="64" rx="8" fill="#ffffff" stroke="#2d3142"/>
+<text x="180" y="152" fill="#2d3142" font-family="'Geist',sans-serif" font-size="12" font-weight="600" text-anchor="middle">planned</text>
+<text x="180" y="168" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="9" text-anchor="middle">lead spawned, tasks drafted</text>
+<rect x="340" y="124" width="176" height="64" rx="8" fill="#ffffff" stroke="#2d3142"/>
+<text x="428" y="152" fill="#2d3142" font-family="'Geist',sans-serif" font-size="12" font-weight="600" text-anchor="middle">fanout</text>
+<text x="428" y="168" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="9" text-anchor="middle">members work in parallel</text>
+<rect x="588" y="124" width="176" height="64" rx="8" fill="#ffffff" stroke="#2d3142"/>
+<text x="676" y="152" fill="#2d3142" font-family="'Geist',sans-serif" font-size="12" font-weight="600" text-anchor="middle">synthesis</text>
+<text x="676" y="168" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="9" text-anchor="middle">lead integrates + verifies</text>
+<rect x="836" y="124" width="176" height="64" rx="8" fill="#ffffff" stroke="#2d3142"/>
+<text x="924" y="152" fill="#2d3142" font-family="'Geist',sans-serif" font-size="12" font-weight="600" text-anchor="middle">completed</text>
+<text x="924" y="168" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="9" text-anchor="middle">gates pass, you review</text>
+<rect x="1084" y="124" width="176" height="64" rx="8" fill="rgba(235,108,54,.08)" stroke="#eb6c36"/>
+<text x="1172" y="152" fill="#2d3142" font-family="'Geist',sans-serif" font-size="12" font-weight="600" text-anchor="middle">decommissioned</text>
+<text x="1172" y="168" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="9" text-anchor="middle">runtime removed, record kept</text>
+<!-- recovery band transitions -->
+<path d="M 404 188 L 404 284" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#ft-arrow)"/>
+<text x="396" y="236" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="8" text-anchor="end">blocked</text>
+<path d="M 452 284 L 452 188" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#ft-arrow)"/>
+<text x="460" y="236" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="8">retry</text>
+<path d="M 516 316 L 628 316" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#ft-arrow)"/>
+<text x="572" y="308" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="8" text-anchor="middle">hard blocker</text>
+<path d="M 716 284 L 716 216 L 516 216" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#ft-arrow)"/>
+<text x="616" y="208" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="8" text-anchor="middle">record_decision</text>
+<!-- recovery states -->
+<rect x="340" y="284" width="176" height="64" rx="8" fill="rgba(45,49,66,.05)" stroke="#4f5d75" stroke-width=".8"/>
+<text x="428" y="312" fill="#2d3142" font-family="'Geist',sans-serif" font-size="12" font-weight="600" text-anchor="middle">deliberating</text>
+<text x="428" y="328" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="9" text-anchor="middle">blocked · stale · failed</text>
+<rect x="628" y="284" width="176" height="64" rx="8" fill="#f5f5f5" stroke="#7a8399" stroke-dasharray="4,4"/>
+<text x="716" y="312" fill="#2d3142" font-family="'Geist',sans-serif" font-size="12" font-weight="600" text-anchor="middle">clarification</text>
+<text x="716" y="328" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="9" text-anchor="middle">hard blocker → you</text>
+<text x="820" y="316" fill="#7a8399" font-family="'Geist Mono',monospace" font-size="8">run waits here until you answer</text>
+<!-- legend -->
+<line x1="40" y1="380" x2="1280" y2="380" stroke="rgba(45,49,66,.12)"/>
+<text x="40" y="406" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="9" letter-spacing=".14em">LEGEND</text>
+<rect x="132" y="396" width="16" height="12" rx="2" fill="rgba(235,108,54,.08)" stroke="#eb6c36"/>
+<text x="156" y="406" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="9">terminal (new)</text>
+<rect x="300" y="396" width="16" height="12" rx="2" fill="#f5f5f5" stroke="#7a8399" stroke-dasharray="4,4"/>
+<text x="324" y="406" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="9">waits on you</text>
+<rect x="500" y="396" width="16" height="12" rx="2" fill="#ffffff" stroke="#2d3142"/>
+<text x="524" y="406" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="9">run phase</text>
+<line x1="700" y1="402" x2="732" y2="402" stroke="#4f5d75" stroke-width="1" marker-end="url(#ft-arrow)"/>
+<text x="748" y="406" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="9">transition</text>
+<circle cx="920" cy="402" r="6" fill="#2d3142"/>
+<text x="940" y="406" fill="#4f5d75" font-family="'Geist Mono',monospace" font-size="9">run starts</text>
+</svg>
+<div class="cards">
+<div class="card"><h2>Lead boundaries</h2><p>One lead per feature, spawned when you start the run. The lead holds the run record, decomposes the work, spawns its members, verifies what they produce, and filters what reaches you. On completion the runtime is removed; the feature record stays.</p></div>
+<div class="card"><h2>Build work — five gaps</h2><ul><li data-n="1">Nested delegation, opt-in per profile, with a depth cap</li><li data-n="2">Per-feature roster, not the fixed six roles</li><li data-n="3">Escalation tool with the three reasons, plus pending-request UI</li><li data-n="4">Close-run action and worktree cleanup</li><li data-n="5">Team panel over <span style="font-family:var(--mono);font-size:11px">.product/features/</span></li></ul></div>
+<div class="card"><h2>Still open</h2><p>Do leads hold write tools, or only the record? Should lead↔lead stay unwired? And where does this sit against the module shell and the existing file-index and upload items?</p></div>
+</div>
+<p class="source">Boundaries sourced from pi-web <span style="color:var(--muted)">lib/subagent-runtime.ts · lib/product-run.ts · lib/product-messaging.ts · .pi/extensions/product-orchestrator</span></p>
+</div></body></html>

@@ -9,7 +9,13 @@ import {
   isFilePathAllowed,
   isWindowsAbsolutePath,
 } from "@/lib/file-access";
-import { buildEntriesFromFiles, filterFileEntries, type FileIndexEntry } from "@/lib/file-fuzzy";
+import {
+  buildEntriesFromFiles,
+  buildEntriesFromSearchRoot,
+  filterFileEntries,
+  type FileIndexEntry,
+} from "@/lib/file-fuzzy";
+import { FileSearchRootError, resolveFileSearchRoots } from "@/lib/file-search-roots";
 
 const execFileAsync = promisify(execFile);
 
@@ -57,6 +63,22 @@ declare global {
 function getIndexCache(): Map<string, CacheEntry> {
   if (!globalThis.__piFileIndexCache) globalThis.__piFileIndexCache = new Map();
   return globalThis.__piFileIndexCache;
+}
+
+async function getListing(root: string): Promise<CacheEntry> {
+  const cache = getIndexCache();
+  const now = Date.now();
+  let cached = cache.get(root);
+  if (!cached || cached.expiresAt <= now) {
+    const listing = (await listWithGit(root)) ?? listWithWalk(root);
+    for (const [key, entry] of cache) {
+      if (entry.expiresAt <= now) cache.delete(key);
+    }
+    if (cache.size >= CACHE_MAX_ENTRIES) cache.clear();
+    cached = { listing, expiresAt: now + CACHE_TTL_MS };
+    cache.set(root, cached);
+  }
+  return cached;
 }
 
 async function listWithGit(cwd: string): Promise<FileListing | null> {
@@ -121,6 +143,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "cwd must be an absolute path" }, { status: 400 });
     }
     const query = req.nextUrl.searchParams.get("q")?.slice(0, MAX_QUERY_LENGTH) ?? "";
+    const requestedSearchRoots = req.nextUrl.searchParams.getAll("searchRoot");
 
     const allowedRoots = await getAllowedFileRoots();
     if (!isFilePathAllowed(cwd, allowedRoots)) {
@@ -140,17 +163,23 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
 
-    const cache = getIndexCache();
-    const now = Date.now();
-    let cached = cache.get(cwd);
-    if (!cached || cached.expiresAt <= now) {
-      const listing = (await listWithGit(cwd)) ?? listWithWalk(cwd);
-      for (const [key, entry] of cache) {
-        if (entry.expiresAt <= now) cache.delete(key);
+    const cached = await getListing(cwd);
+
+    // Explicit multi-root mode is additive. Omitting searchRoot preserves the
+    // original cwd-only request and response contract byte-for-byte.
+    if (requestedSearchRoots.length > 0) {
+      const searchRoots = resolveFileSearchRoots(requestedSearchRoots, cwd, allowedRoots);
+      cached.entries ??= buildEntriesFromFiles(cached.listing.files);
+      const entries = [...cached.entries];
+      const roots: Array<{ alias: string; path: string; truncated: boolean }> = [];
+      let hardTruncated = cached.listing.hardTruncated;
+      for (const root of searchRoots) {
+        const rootCache = await getListing(root.path);
+        entries.push(...buildEntriesFromSearchRoot(rootCache.listing.files, root.path, root.alias));
+        roots.push({ alias: root.alias, path: root.path, truncated: rootCache.listing.hardTruncated });
+        hardTruncated ||= rootCache.listing.hardTruncated;
       }
-      if (cache.size >= CACHE_MAX_ENTRIES) cache.clear();
-      cached = { listing, expiresAt: now + CACHE_TTL_MS };
-      cache.set(cwd, cached);
+      return NextResponse.json({ matches: filterFileEntries(entries, query), roots, truncated: hardTruncated });
     }
 
     if (query) {
@@ -164,6 +193,9 @@ export async function GET(req: NextRequest) {
       truncated: hardTruncated || files.length > MAX_FILES,
     });
   } catch (error) {
+    if (error instanceof FileSearchRootError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
 }

@@ -92,12 +92,21 @@ export interface ChatInputHandle {
   replaceMessage: (message: UserMessage) => void;
   prependText: (text: string) => void;
   addImages: (files: File[]) => void;
+  clearIfValue: (text: string) => void;
   rekeyDraft: (previousKey: string, nextKey: string) => void;
   restoreSubmission: (text: string, images?: ChatDraftImage[], targetDraftKey?: string) => void;
 }
 
 // "configured" sends no override, so the session follows settings.json defaultTools.
 const TOOL_PRESETS = ["configured", "chat-only", "read-only", "default", "full"] as const;
+
+/**
+ * True when the composer still holds exactly the text "edit from here" put
+ * there, so cancelling can clear it without dropping a draft the user typed.
+ */
+export function shouldClearRestoredEdit(current: string, restored: string): boolean {
+  return Boolean(restored.trim()) && current.trim() === restored.trim();
+}
 type ToolPresetLabel = typeof TOOL_PRESETS[number];
 const TOOL_PRESET_MAP: Record<ToolPresetLabel, ToolPreset> = {
   configured: "configured",
@@ -807,6 +816,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     },
     addImages(files: File[]) {
       processImageFiles(files);
+    },
+    // Cancelling "edit from here" drops the restored text only while the
+    // composer still holds exactly it, so a draft the user typed is never lost.
+    clearIfValue(text: string) {
+      if (shouldClearRestoredEdit(valueRef.current, text)) clearInput();
     },
   }));
 
