@@ -732,9 +732,22 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
         method: "POST",
         body: formData,
       });
-      const result = await response.json() as { uploaded?: string[]; error?: string };
+      const result = await response.json() as {
+        uploaded?: string[];
+        skipped?: string[];
+        errors?: Array<{ name: string; error: string }>;
+        error?: string;
+      };
       if (!response.ok) throw new Error(result.error ?? "Document upload failed");
-      const mentions = (result.uploaded ?? []).map((name) => /[^\w./-]/.test(name) ? `@"${name.replaceAll('"', '\\\"')}" ` : `@${name} `);
+      const uploaded = result.uploaded ?? [];
+      const failed = [
+        ...(result.skipped ?? []).map((name) => `${name} (skipped)`),
+        ...(result.errors ?? []).map(({ name, error }) => `${name} (${error})`),
+      ];
+      if (failed.length > 0) {
+        addNotice({ type: "error", message: `Some files were not uploaded: ${failed.join(", ")}` });
+      }
+      const mentions = uploaded.map((name) => /[^\w./-]/.test(name) ? `@"${name.replaceAll('"', '\\\"')}" ` : `@${name} `);
       if (mentions.length > 0) chatInputRef?.current?.insertText(mentions.join(""));
     } catch (error) {
       addNotice({ type: "error", message: error instanceof Error ? error.message : String(error) });
