@@ -219,6 +219,15 @@ test("does not expose disk-backed actions for transient sessions", () => {
   assert.match(sessionItemSource, /\{!session\.transient && \(/);
 });
 
+test("aggregates subagent state into the collapsed main session row", () => {
+  assert.match(source, /const sessionFamilies = useMemo\(\(\) => listSessionFamilies\(filteredSessions\)/);
+  // Collapsed families own their subagents' selection state; that aggregation
+  // now lives in the nested-row helper rather than inline JSX.
+  assert.match(source, /row\.family\.subagents\.some\(\(session\) => session\.id === selectedSessionId\)/);
+  assert.match(source, /familySessions\.some\(\(session\) => runningSessionIds\.has\(session\.id\)\)/);
+  assert.doesNotMatch(source, /function SessionTreeItem/);
+});
+
 test("visible nested session rows own selection until the family is collapsed", () => {
   const [family] = listSessionFamilies([
     makeSession("main", "2026-01-01T00:00:00.000Z"),

@@ -225,7 +225,10 @@ function withExtensionTools(session: AgentSessionLike, toolNames: string[]): str
 // ============================================================================
 
 export class AgentSessionWrapper {
-  private listeners: EventListener[] = [];
+  // A Set, not an array: an SSE stream unsubscribes from inside emit() when it
+  // closes on session_shutdown, and splicing an array mid-iteration made the
+  // next stream miss that same event.
+  private listeners = new Set<EventListener>();
   private activeToolEvents = new Map<string, AgentEvent>();
   private eventSequence = 0;
   private eventHistory: Array<{ sequence: number; event: AgentEvent }> = [];
@@ -541,12 +544,11 @@ export class AgentSessionWrapper {
   }
 
   onEvent(listener: EventListener): () => void {
-    this.listeners.push(listener);
+    this.listeners.add(listener);
     for (const event of this.pendingUiRequests.values()) listener(event);
     for (const event of this.activeToolEvents.values()) listener(event);
     return () => {
-      const i = this.listeners.indexOf(listener);
-      if (i !== -1) this.listeners.splice(i, 1);
+      this.listeners.delete(listener);
     };
   }
 
