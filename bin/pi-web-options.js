@@ -87,7 +87,7 @@ function parseCliArguments(args = process.argv.slice(2), env = process.env) {
   if (values.help) return { command: "foreground", help: true };
   const command = positionals[0] ?? "foreground";
   const sourceDir = positionals[1];
-  const arity = COMMAND_ARITY[command] ?? { min: 1, max: 1 };
+  const arity = COMMAND_ARITY[command] ?? { min: 0, max: 1 };
   if (!COMMANDS.has(command) || positionals.length < arity.min || positionals.length > arity.max) {
     throw new Error(
       `Unexpected argument(s): ${positionals.join(" ")}\nUse --help to see available options.`,
