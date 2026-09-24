@@ -1,0 +1,30 @@
+version: 1
+feature: IN-APP-NOTIFICATIONS
+clarifications:
+  - title: Preview artifact retention
+    question: When should a live HTML/CSS preview be garbage-collected?
+    context: >-
+      Preview artifacts should remain available during implementation and review, but stale files should not accumulate
+      or become accidental committed product files.
+    options:
+      - id: ready_for_dev
+        label: Delete when the feature reaches Ready for Dev
+        tradeoff: Cleans early, but removes the preview before implementation handoff is complete.
+      - id: shipped
+        label: Delete when the feature is merged or shipped
+        tradeoff: Keeps review and handoff access, but needs a shipped/completed signal.
+      - id: manual_ttl
+        label: Manual archive/delete with an age-based fallback
+        tradeoff: Safest for review; requires an explicit archive action and a conservative TTL fallback.
+    recommendation: manual_ttl
+    affectedArtifacts:
+      - components/LivePreviewPanel.tsx
+      - public/previews/notification.html
+    blocking: true
+    id: CLAR-001
+    status: resolved
+    created_at: '2026-09-12T17:07:53.179Z'
+    version: 1
+    feature: IN-APP-NOTIFICATIONS
+    decision_id: DEC-002
+    resolved_at: '2026-09-12T17:10:37.216Z'

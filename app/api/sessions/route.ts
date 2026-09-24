@@ -7,6 +7,7 @@ import {
   listSessionSummaries,
   mergeSessionLists,
 } from "@/lib/session-reader";
+import { getExistingAgentWorkerInfos } from "@/lib/agent-worker-client";
 import {
   getCompletionNotificationSuppressedRpcSessionIds,
   getRpcSessionInfos,
@@ -30,31 +31,43 @@ export async function GET(req: Request) {
       : listAllSessions({ force });
     // Capture before awaiting: mutations during the scan still require a later refresh.
     const sessionListVersion = getSessionListVersion();
-    const [persistedSessions, runtimeSessions] = await Promise.all([
+    const [persistedSessions, workerState] = await Promise.all([
       persistedSessionsPromise,
-      attachSessionProjectInfo(getRpcSessionInfos()),
+      (async () => {
+        try {
+          const response = await getExistingAgentWorkerInfos();
+          if (!response) return null;
+          if (!response.ok) return null;
+          return await response.json() as {
+            sessions?: import("@/lib/types").SessionInfo[];
+            runningSessionIds?: string[];
+            completionNotificationSuppressedSessionIds?: string[];
+          };
+        } catch {
+          return null;
+        }
+      })(),
     ]);
+    const localState = getRpcSessionInfos();
+    const runtimeSessions = mergeSessionLists(workerState?.sessions ?? [], localState);
     perf?.span("scan+projects");
-    const sessions = mergeSessionLists(persistedSessions, runtimeSessions);
-    return perf?.attach(jsonResponse(
-      req,
-      {
-        sessions,
-        sessionListVersion,
-        runningSessionIds: getRunningRpcSessionIds(),
-        completionNotificationSuppressedSessionIds: getCompletionNotificationSuppressedRpcSessionIds(),
-      },
-      { headers: { "Cache-Control": "no-store" } },
-    )) ?? jsonResponse(
-      req,
-      {
-        sessions,
-        sessionListVersion,
-        runningSessionIds: getRunningRpcSessionIds(),
-        completionNotificationSuppressedSessionIds: getCompletionNotificationSuppressedRpcSessionIds(),
-      },
-      { headers: { "Cache-Control": "no-store" } },
-    );
+    const sessions = mergeSessionLists(persistedSessions, await attachSessionProjectInfo(runtimeSessions));
+    const runningSessionIds = new Set([
+      ...(workerState?.runningSessionIds ?? []),
+      ...getRunningRpcSessionIds(),
+    ]);
+    const completionNotificationSuppressedSessionIds = new Set([
+      ...(workerState?.completionNotificationSuppressedSessionIds ?? []),
+      ...getCompletionNotificationSuppressedRpcSessionIds(),
+    ]);
+    const payload = {
+      sessions,
+      sessionListVersion,
+      runningSessionIds: [...runningSessionIds],
+      completionNotificationSuppressedSessionIds: [...completionNotificationSuppressedSessionIds],
+    };
+    const options = { headers: { "Cache-Control": "no-store" } };
+    return perf?.attach(jsonResponse(req, payload, options)) ?? jsonResponse(req, payload, options);
   } catch (error) {
     return NextResponse.json(
       { error: String(error) },

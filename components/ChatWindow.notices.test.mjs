@@ -9,6 +9,14 @@ test("renders temporary notices once at the top right of the chat column", () =>
   const noticeShelfUsages = source.match(/<NoticeShelf notices=\{notices\}/g) ?? [];
 
   assert.equal(noticeShelfUsages.length, 1);
+  assert.match(source, /className="notice-shelf-item"[\s\S]*?borderRadius: 8/);
+  assert.match(source, /border: "1px solid color-mix\(in srgb, var\(--border\) 92%, transparent\)"/);
+  assert.doesNotMatch(source, /NoticeIcon/);
+  assert.match(source, /className="notice-shelf-item"[\s\S]*?fontFamily: "inherit"/);
+  assert.match(source, /splitLeadingEmoji\(notice\.message\)/);
+  assert.match(source, /\{emoji && \(/);
+  assert.doesNotMatch(source, /borderLeft: `3px solid \$\{color\}`/);
+  assert.doesNotMatch(source, /String\(index \+ 1\)\.padStart\(2, "0"\)/);
   assert.match(
     source,
     /position: "absolute",\s*top: 12,\s*left: 0,\s*right: isMobile \? 0 : CHAT_MINIMAP_WIDTH,[\s\S]*?justifyContent: "flex-end",[\s\S]*?<NoticeShelf notices=\{notices\} floating onPauseChange=\{setNoticePaused\} \/>/,

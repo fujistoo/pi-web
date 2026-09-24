@@ -29,6 +29,16 @@ test("renders a button per file showing the basename and full path", () => {
   assert.match(html, /title="\/abs\/out\/data\.json"/);
 });
 
+test("renders runtime preview files as output-linked preview references", () => {
+  const html = render({
+    files: [{ filePath: "/work/.pi/previews/something.html" }],
+    onOpenFile() {},
+  });
+  assert.match(html, /\/preview\/something\.html/);
+  assert.doesNotMatch(html, /Add preview|Archive preview/);
+  assert.match(html, /title="\/work\/\.pi\/previews\/something\.html"/);
+});
+
 test("renders nothing when no files were written", () => {
   assert.equal(render({ files: [], onOpenFile() {} }), "");
 });

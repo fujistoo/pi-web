@@ -1,0 +1,18 @@
+baseline: 1
+actors:
+  - session user
+requirements:
+  R1:
+    statement: A turn is one user input and the model/tool/compaction work until the next user input.
+    priority: must
+  R2:
+    statement: Completed process details show the active duration for their turn.
+    priority: must
+  R3:
+    statement: Timing uses append-only session timestamps and excludes human idle time.
+    priority: must
+  R4:
+    statement: Turn timing remains correctly associated across branches and compaction.
+    priority: must
+version: 1
+feature: SESSION-TURN-TIMING

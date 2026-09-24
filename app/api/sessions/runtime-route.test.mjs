@@ -155,14 +155,15 @@ test("session listing supports cheap summaries and honors force refresh", () => 
   assert.match(listRoute, /summary\s*\n?\s*\? listSessionSummaries\(\)/);
   assert.match(listRoute, /searchParams\.get\("force"\) === "1"/);
   assert.match(listRoute, /listAllSessions\(\{ force \}\)/);
-  assert.match(listRoute, /attachSessionProjectInfo\(getRpcSessionInfos\(\)\)/);
-  assert.match(listRoute, /mergeSessionLists\(persistedSessions, runtimeSessions\)/);
+  assert.match(listRoute, /getExistingAgentWorkerInfos\(\)/);
+  assert.match(listRoute, /getRpcSessionInfos\(\)/);
+  assert.match(listRoute, /mergeSessionLists\(persistedSessions, await attachSessionProjectInfo\(runtimeSessions\)/);
   assert.match(listRoute, /"Cache-Control": "no-store"/);
 });
 
 test("session reads use the live SessionManager before requiring a JSONL path", () => {
   for (const source of [detailRoute, contextRoute]) {
-    const liveLookup = source.indexOf("getRpcSession(id)");
+    const liveLookup = source.indexOf("getExistingAgentWorkerSnapshot(id)");
     const pathLookup = source.indexOf("resolveSessionPath(id)");
     assert.ok(liveLookup >= 0);
     assert.ok(pathLookup > liveLookup);
@@ -179,11 +180,12 @@ test("detail reads probe disk only on force/mount and evict a stale idle wrapper
 });
 
 test("live agent state is available before the session file is persisted", () => {
-  const liveLookup = stateRoute.indexOf("getRpcSession(id)");
+  const liveLookup = stateRoute.indexOf("getExistingAgentWorkerState(id)");
   const pathLookup = stateRoute.indexOf("resolveSessionPath(id)");
   assert.ok(liveLookup >= 0);
   assert.ok(pathLookup > liveLookup);
-  assert.match(stateRoute, /if \(rpc\?\.isAlive\(\)\)/);
+  assert.match(stateRoute, /getRpcSession\(id\)/);
+  assert.match(stateRoute, /running: true, state:/);
 });
 
 test("deleting a session removes all persisted subagent descendants", async (t) => {
@@ -313,6 +315,63 @@ test("live detail and state routes work without a persisted JSONL file", async (
     running: true,
     state: { isStreaming: true },
   });
+});
+
+test("session detail preserves inferred fleet relations", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "pi-web-fleet-detail-"));
+  const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = dir;
+  invalidateSessionListCache();
+  const parentId = "fleet-detail-parent";
+  const childId = "fleet-detail-child";
+  const sessionsRoot = join(dir, "sessions", "--tmp--");
+  const parentStem = join(sessionsRoot, `2026-09-06T00-00-00-000Z_${parentId}`);
+  const childPath = join(parentStem, "child", "run-0", "session.jsonl");
+  const header = (id) => JSON.stringify({
+    type: "session",
+    version: 3,
+    id,
+    timestamp: "2026-09-06T00:00:00.000Z",
+    cwd: dir,
+  });
+  await mkdir(join(parentStem, "child", "run-0"), { recursive: true });
+  await writeFile(`${parentStem}.jsonl`, `${header(parentId)}\n`);
+  await writeFile(childPath, [
+    header(childId),
+    JSON.stringify({
+      type: "message",
+      id: "child-message",
+      parentId: null,
+      timestamp: "2026-09-06T00:00:01.000Z",
+      message: { role: "user", content: "fleet child" },
+    }),
+    "",
+  ].join("\n"));
+  t.after(async () => {
+    if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+    invalidateSessionPathCache(parentId);
+    invalidateSessionPathCache(childId);
+    invalidateSessionListCache();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  const listResponse = await getSessionList(new Request("http://localhost/api/sessions?force=1"));
+  const list = await listResponse.json();
+  const child = list.sessions.find((session) => session.id === childId);
+  assert.equal(listResponse.status, 200);
+  assert.equal(child.relation.kind, "subagent");
+  assert.equal(child.relation.parentSessionId, parentId);
+
+  const detailResponse = await getSessionDetail(
+    new Request(`http://localhost/api/sessions/${childId}`),
+    { params: Promise.resolve({ id: childId }) },
+  );
+  const detail = await detailResponse.json();
+  assert.equal(detailResponse.status, 200);
+  assert.equal(detail.info.parentSessionId, parentId);
+  assert.equal(detail.info.relation.kind, "subagent");
+  assert.equal(detail.info.relation.parentSessionId, parentId);
 });
 
 test("session detail returns a gzip-compressed response when the client accepts it", async (t) => {

@@ -25,6 +25,9 @@ const sessionDir = join(agentDir, "sessions", "e2e");
 mkdirSync(project);
 const previewFile = join(project, "preview.html");
 writeFileSync(previewFile, filePanelFixture);
+writeFileSync(join(project, "inline-test.md"), "# Inline attachment test\n");
+mkdirSync(join(project, "nested"));
+writeFileSync(join(project, "nested", "deep.md"), "# Nested attachment test\n");
 mkdirSync(sessionDir, { recursive: true });
 const timestamp = "2026-08-23T00:00:00.000Z";
 const LONG = "e2e-long-session";
@@ -177,7 +180,8 @@ try {
   assert.deepEqual(detail.context.entryIds, ids(4950, 5000));
   assert.equal(detail.context.messages.length, 50);
   assert.equal(detail.context.hasMore, true);
-  assert.ok(JSON.stringify(detail).length < 100_000, "Detail transferred unbounded history");
+  assert.equal(detail.context.historyInputs.length, 2500);
+  assert.ok(JSON.stringify(detail.context.messages).length < 100_000, "Detail transferred unbounded message history");
   const tail = await api(`/api/sessions/${LONG}/context?tail=50`);
   assert.deepEqual(tail.context.entryIds, ids(4950, 5000));
   assert.equal(tail.context.messages.length, 50);
@@ -240,8 +244,23 @@ try {
     const latestUser = await page.getByText(text(4998), { exact: true }).elementHandle();
     assert.ok(latestUser, "Latest user message must be mounted before pagination");
     const sentinel = page.getByText("Scroll up to load earlier messages", { exact: true });
+    const chatScroll = page.locator(".chat-content .overflow-y-auto").first();
     await sentinel.waitFor({ state: "attached" });
     assert.equal(await page.getByText(text(4949), { exact: true }).count(), 0);
+
+    // The floating control appears when the reader leaves the tail and returns
+    // the viewport to the latest content without changing loaded history.
+    const scrollToBottom = page.locator("[data-scroll-to-bottom]");
+    await chatScroll.evaluate((element) => {
+      element.scrollTop = Math.max(0, element.scrollHeight - element.clientHeight - 300);
+    });
+    await scrollToBottom.waitFor({ state: "visible" });
+    await scrollToBottom.click();
+    await page.waitForFunction(() => {
+      const element = document.querySelector(".chat-content .overflow-y-auto");
+      return Boolean(element && element.scrollTop + element.clientHeight >= element.scrollHeight - 8);
+    });
+    await scrollToBottom.waitFor({ state: "detached" });
 
     // Exercise the real IntersectionObserver and prepend path, twice.
     for (let turn = 0; turn < 2; turn++) {
@@ -290,6 +309,54 @@ try {
     await page.locator("strong").filter({ hasText: "E2E markdown" }).waitFor();
     await page.locator("pre").filter({ hasText: "console.log('E2E code');" }).waitFor();
     await page.getByText("E2E final answer", { exact: true }).waitFor();
+    if (viewport.width > 600) {
+      const dropTarget = page.locator("textarea.chat-input-textarea");
+      const uploadResponse = page.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return url.pathname.includes("/api/files/") && url.searchParams.get("type") === "upload";
+      });
+      await dropTarget.evaluate((element) => {
+        const dataTransfer = new DataTransfer();
+        dataTransfer.items.add(new File(["# dropped"], "inline-test.md", { type: "text/markdown" }));
+        element.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer }));
+      });
+      assert.deepEqual(await (await uploadResponse).json(), { uploaded: ["inline-test.md"], skipped: [], errors: [] });
+      const token = page.locator(".chat-input-attachment-token[data-file-path]");
+      await token.waitFor();
+      const editor = page.locator(".chat-input-inline-editor");
+      await editor.waitFor();
+      await editor.press("End");
+      await editor.type(" after");
+      await editor.press("Shift+Enter");
+      await editor.type("line two");
+      assert.equal(await page.locator('[data-file-autocomplete="true"]').count(), 0, "Typing after a file token must not reopen @ autocomplete");
+      assert.match(await page.locator("textarea.chat-input-textarea").inputValue(), /@inline-test\.md.*line two/s);
+      await token.click();
+      await page.locator(".file-viewer-shell").waitFor();
+      await page.locator(".file-viewer-path").getByText("inline-test.md", { exact: true }).waitFor();
+      await editor.press("ControlOrMeta+A");
+      await editor.press("Backspace");
+      await page.locator(".chat-input-attachment-token").waitFor({ state: "detached" });
+      const textInput = page.locator("textarea.chat-input-textarea");
+      await textInput.fill("@nested");
+      const folderSuggestion = page.locator('[data-file-autocomplete="true"] button').filter({ hasText: "nested/" }).first();
+      await folderSuggestion.waitFor();
+      await folderSuggestion.click();
+      const nestedFileSuggestion = page.locator('[data-file-autocomplete="true"] button').filter({ hasText: "deep.md" }).first();
+      await nestedFileSuggestion.waitFor();
+      await page.locator("textarea.chat-input-textarea").press("Space");
+      const folderToken = page.locator('.chat-input-attachment-token[data-folder="true"]');
+      await folderToken.waitFor();
+      await folderToken.click();
+      await page.locator('[title$="/nested/deep.md"]').waitFor();
+      await editor.press("ControlOrMeta+A");
+      await editor.press("Backspace");
+      await textInput.fill("@inline-test.md ");
+      await editor.waitFor();
+      await editor.press("End");
+      await editor.type(" tail");
+      assert.match(await textInput.inputValue(), /@inline-test\.md.*tail/s);
+    }
     const processDetails = page.getByRole("button", { name: /^Process details/ });
     const thinking = page.getByRole("button", { name: /^Thinking/ });
     assert.equal(await processDetails.count(), 1);

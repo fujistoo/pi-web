@@ -8,6 +8,7 @@ import { writePrivateFileAtomicSync } from "./atomic-file";
 import { isExistingPathWithinRoots } from "./path-security";
 import { disabledBuiltInSubagents } from "./subagent-settings";
 import { PRESET_READ_ONLY } from "./tool-presets";
+import type { ProductSubagentContext } from "./product-messaging";
 import type { SessionEntry, SubagentSessionStatus } from "./types";
 
 export const SUBAGENT_META_TYPE = "pi-web:subagent";
@@ -55,6 +56,7 @@ export interface SubagentMetadata {
   resourceSnapshot: SubagentResourceSnapshot;
   worktreePath?: string;
   worktreeBranch?: string;
+  product?: ProductSubagentContext;
 }
 
 export interface SubagentResourceSnapshot {
@@ -64,6 +66,7 @@ export interface SubagentResourceSnapshot {
   loadSkills: boolean;
   loadExtensions: boolean;
   exactSystemPrompt?: string;
+  product?: ProductSubagentContext;
 }
 
 export interface SubagentSessionResources {
@@ -72,6 +75,7 @@ export interface SubagentSessionResources {
   loadSkills: boolean;
   loadExtensions: boolean;
   exactSystemPrompt?: string;
+  product?: ProductSubagentContext;
 }
 
 export interface SubagentResultMetadata {
@@ -105,6 +109,7 @@ export interface SubagentRunInfo {
   worktreePath?: string;
   worktreeBranch?: string;
   worktreeCleanupError?: string;
+  product?: ProductSubagentContext;
 }
 
 const DEFAULT_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
@@ -500,6 +505,19 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function readProductContext(value: unknown): ProductSubagentContext | undefined {
+  if (!isRecord(value)) return undefined;
+  if (typeof value.feature !== "string" || typeof value.runId !== "string" || typeof value.role !== "string") return undefined;
+  if (!value.feature.trim() || !value.runId.trim() || !["prd", "archaeology", "rbac", "ux", "qa"].includes(value.role)) return undefined;
+  if (value.taskId !== undefined && (typeof value.taskId !== "string" || !/^TASK-[0-9]{3,}$/.test(value.taskId))) return undefined;
+  return {
+    feature: value.feature.trim(),
+    runId: value.runId.trim(),
+    role: value.role as ProductSubagentContext["role"],
+    ...(typeof value.taskId === "string" ? { taskId: value.taskId } : {}),
+  };
+}
+
 type ValidSubagentMetadataData = Record<string, unknown> & {
   version: 1;
   parentSessionId: string;
@@ -542,6 +560,7 @@ export function readSubagentSessionResources(
       loadSkills,
       loadExtensions,
       ...(typeof snapshot.exactSystemPrompt === "string" ? { exactSystemPrompt: snapshot.exactSystemPrompt } : {}),
+      ...(readProductContext(data.product) ? { product: readProductContext(data.product) } : {}),
     };
   }
   return null;
@@ -616,5 +635,6 @@ export function readSubagentRun(entries: readonly SessionEntry[], sessionId: str
     ...(typeof data.worktreePath === "string" ? { worktreePath: data.worktreePath } : {}),
     ...(typeof data.worktreeBranch === "string" ? { worktreeBranch: data.worktreeBranch } : {}),
     ...(result && typeof result.worktreeCleanupError === "string" ? { worktreeCleanupError: result.worktreeCleanupError } : {}),
+    ...(readProductContext(data.product) ? { product: readProductContext(data.product) } : {}),
   };
 }

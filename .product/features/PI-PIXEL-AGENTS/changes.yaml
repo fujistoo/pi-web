@@ -1,0 +1,91 @@
+version: 1
+feature: PI-PIXEL-AGENTS
+items:
+  - summary: >-
+      Clarified that the user-facing office is hosted in pi-web's existing Agents experience, with pi-web's design
+      language authoritative and Taste Skill used only as optional motion inspiration.
+    requirements:
+      - R2
+      - R3
+      - R4
+    files:
+      - pi-pixel-agents-implementation-plan.md
+    verification:
+      - >-
+        Plan now names the session-level Agents panel/workspace as the working destination and keeps Settings → Agents
+        configuration-only pending clarification.
+      - Taste Skill is documented as an inspiration-only reference.
+    id: CHG-001
+    recorded_at: '2026-09-12T13:36:50.229Z'
+    version: 1
+    feature: PI-PIXEL-AGENTS
+  - summary: >-
+      Resolved the Agents placement ambiguity from the provided screenshot: the live office belongs in the existing
+      session-level top-toolbar Agents panel/workspace, while Settings → Agents remains configuration-only.
+    requirements:
+      - R2
+      - R3
+      - R5
+    files:
+      - pi-pixel-agents-implementation-plan.md
+      - components/AppShell.tsx
+      - components/AgentSessionPanel.tsx
+      - components/AgentWorkspace.tsx
+    verification:
+      - Plan now names the screenshot's top-toolbar Agents surface as the fixed user-facing destination.
+      - Clarification CLAR-001 is resolved by DEC-002.
+    id: CHG-002
+    recorded_at: '2026-09-12T13:40:14.689Z'
+    version: 1
+    feature: PI-PIXEL-AGENTS
+  - id: CHG-003
+    summary: Moved character-styling mockups out of the Agents workspace and into the existing side-panel Previews surface.
+    requirements:
+      - R2
+      - R3
+      - R5
+    files:
+      - components/AgentWorkspace.tsx
+      - components/AppShell.tsx
+      - lib/preview-artifacts.ts
+      - lib/pixel-agents-preview.ts
+      - lib/preview-artifacts.test.mjs
+      - lib/i18n/messages/en.ts
+      - lib/i18n/messages/zh-CN.ts
+      - lib/i18n/messages/zh-TW.ts
+    verification:
+      - >-
+        Agents workspace now exposes only the live Office and real agent Chats views; no Mockups tab or mockup component
+        remains.
+      - >-
+        The right-side Preview panel preserves Notice and adds a Pixel Agents tab backed by the sandboxed
+        /api/previews/pixel-agents artifact.
+      - >-
+        The Pixel Agents preview uses CSS-native radio controls, supports all three study variants, and honors
+        prefers-reduced-motion.
+      - Empty live-agent smoke test showed Agents 0 with no invented characters.
+    source: Accepted user clarification
+    status: implemented
+    recorded_at: '2026-09-13T03:54:46.602Z'
+    version: 1
+    feature: PI-PIXEL-AGENTS
+  - title: Add direct Agents workspace toolbar toggle
+    summary: >-
+      The live Agents workspace can be opened or closed directly from the main toolbar, independently of the Agents
+      session switcher and with zero subagents.
+    requirements:
+      - R2
+      - R5
+    scenarios:
+      - Toggle workspace with no spawned agents
+      - Toggle workspace while a session family is active
+    files:
+      - components/AppShell.tsx
+      - components/AgentWorkspace.tsx
+      - components/AppShell.mobile-toolbar.test.mjs
+    status: implemented
+    source: Direct user instruction
+    id: CHG-004
+    recorded_at: '2026-09-13T05:23:42.905Z'
+    version: 1
+    feature: PI-PIXEL-AGENTS

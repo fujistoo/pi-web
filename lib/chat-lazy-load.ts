@@ -19,6 +19,35 @@ export function captureScrollDistance(scrollHeight: number, scrollTop: number): 
   return scrollHeight - scrollTop;
 }
 
+export function mergeLoadedContext<T>(
+  currentEntryIds: readonly string[],
+  currentMessages: readonly T[],
+  loadedEntryIds: readonly string[],
+  loadedMessages: readonly T[],
+): { entryIds: string[]; messages: T[] } {
+  const currentById = new Map<string, T>();
+  currentEntryIds.forEach((id, index) => {
+    const message = currentMessages[index];
+    if (message !== undefined) currentById.set(id, message);
+  });
+  const loadedById = new Map<string, T>();
+  loadedEntryIds.forEach((id, index) => {
+    const message = loadedMessages[index];
+    if (message !== undefined) loadedById.set(id, message);
+  });
+  const entryIds = currentEntryIds.filter((id) => currentById.has(id));
+  for (const id of loadedEntryIds) {
+    if (!currentById.has(id)) entryIds.push(id);
+  }
+  return {
+    entryIds,
+    messages: entryIds.flatMap((id) => {
+      const message = loadedById.get(id) ?? currentById.get(id);
+      return message === undefined ? [] : [message];
+    }),
+  };
+}
+
 export function restoreScrollTop(scrollHeight: number, savedDistance: number): number {
   return Math.max(0, scrollHeight - savedDistance);
 }

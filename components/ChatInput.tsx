@@ -38,12 +38,164 @@ export interface AttachedImage {
   previewUrl: string; // object URL for display
 }
 
+interface AttachedFile {
+  name: string;
+  label?: string;
+  path?: string;
+  folder?: boolean;
+}
+
+type AttachedFileInput = string | { name: string; folder?: boolean };
+
+function attachedFile(name: string, cwd?: string | null, folder = name.endsWith("/")): AttachedFile {
+  const normalizedName = folder ? name.replace(/\/+$/, "") : name;
+  const baseName = normalizedName.split("/").pop() ?? normalizedName;
+  return {
+    name: normalizedName,
+    label: `${baseName}${folder ? "/" : ""}`,
+    ...(folder ? { folder: true } : {}),
+    path: cwd ? `${cwd.replace(/[\\\\/]+$/, "")}/${normalizedName}` : normalizedName,
+  };
+}
+
+function draftFileName(file: AttachedFile): string {
+  return file.folder ? `${file.name}/` : file.name;
+}
+
+function attachmentAlias(name: string): string {
+  return /[^\w./-]/.test(name) ? `@"${name.replaceAll('"', '\\\"')}"` : `@${name}`;
+}
+
+function attachmentAliasFor(file: AttachedFile): string {
+  return attachmentAlias(file.folder ? `${file.name}/` : file.name);
+}
+
+function isCompletedAttachmentAlias(value: string, index: number, alias: string, folder: boolean | undefined): boolean {
+  const next = value[index + alias.length];
+  if (folder) return (alias.endsWith("/") || alias.endsWith('/"')) && Boolean(next) && /\s/.test(next);
+  if (!next || /\s/.test(next)) return Boolean(next);
+  return next === ":" && /^:\d+(?:-\d+)?(?:\s|$)/.test(value.slice(index + alias.length));
+}
+
+function findCompletedAttachmentAlias(value: string, alias: string, folder: boolean | undefined): number {
+  let from = 0;
+  while (from <= value.length) {
+    const index = value.indexOf(alias, from);
+    if (index < 0) return -1;
+    if (isCompletedAttachmentAlias(value, index, alias, folder)) return index;
+    from = index + alias.length;
+  }
+  return -1;
+}
+
+function containsAttachmentAlias(value: string, file: AttachedFile): boolean {
+  return [attachmentAliasFor(file), attachmentAlias(file.name), `@${file.name}`]
+    .some((alias) => findCompletedAttachmentAlias(value, alias, file.folder) >= 0);
+}
+
+function serializeInlineEditor(root: HTMLElement): string {
+  const walk = (node: Node): string => {
+    if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? "";
+    if (!(node instanceof HTMLElement)) return [...node.childNodes].map(walk).join("");
+    if (node.dataset.attachmentAlias) return node.dataset.attachmentAlias;
+    if (node.tagName === "BR") return "\n";
+    const content = [...node.childNodes].map(walk).join("");
+    return node !== root && (node.tagName === "DIV" || node.tagName === "P") ? `${content}\n` : content;
+  };
+  return walk(root).replace(/\n$/, "");
+}
+
+function setInlineEditorContent(root: HTMLElement, value: string, files: AttachedFile[]): void {
+  root.replaceChildren();
+  let remaining = value;
+  const sorted = [...files].sort((a, b) => attachmentAliasFor(b).length - attachmentAliasFor(a).length);
+  while (remaining) {
+    let found: { file: AttachedFile; alias: string; index: number } | null = null;
+    for (const file of sorted) {
+      const aliases = [attachmentAliasFor(file), attachmentAlias(file.name), `@${file.name}`];
+      for (const alias of aliases) {
+        const index = findCompletedAttachmentAlias(remaining, alias, file.folder);
+        if (index >= 0 && (!found || index < found.index)) found = { file, alias, index };
+      }
+    }
+    if (!found) { root.append(document.createTextNode(remaining)); break; }
+    if (found.index > 0) root.append(document.createTextNode(remaining.slice(0, found.index)));
+    const token = document.createElement("span");
+    token.dataset.attachmentAlias = found.alias;
+    token.contentEditable = "false";
+    token.className = "chat-input-attachment-token";
+    if (found.file.path) token.dataset.filePath = found.file.path;
+    token.setAttribute("aria-label", `${found.file.label ?? found.file.name}${found.file.folder ? " folder" : " · attached"}`);
+    token.setAttribute("role", found.file.path ? "button" : "img");
+    if (found.file.path) token.tabIndex = 0;
+    if (found.file.folder) token.dataset.folder = "true";
+    const icon = document.createElement("span");
+    icon.className = "catppuccin-file-icon chat-input-attachment-icon";
+    icon.style.setProperty("--catppuccin-icon-light", `url(/icons/catppuccin/latte/${found.file.folder ? "_folder" : "_file"}.svg)`);
+    icon.style.setProperty("--catppuccin-icon-dark", `url(/icons/catppuccin/mocha/${found.file.folder ? "_folder" : "_file"}.svg)`);
+    token.append(icon, document.createTextNode(`${found.file.label ?? found.file.name} · attached`));
+    root.append(token);
+    remaining = remaining.slice(found.index + found.alias.length);
+  }
+  if (!root.childNodes.length) root.append(document.createElement("br"));
+}
+
+function inlineNodeLength(node: Node): number {
+  if (node instanceof HTMLElement && node.dataset.attachmentAlias) return node.dataset.attachmentAlias.length;
+  if (node.nodeType === Node.TEXT_NODE) return node.textContent?.length ?? 0;
+  if (node instanceof HTMLElement && node.tagName === "BR") return 1;
+  const length = [...node.childNodes].reduce((total, child) => total + inlineNodeLength(child), 0);
+  return node instanceof HTMLElement && (node.tagName === "DIV" || node.tagName === "P") ? length + 1 : length;
+}
+
+function removeAdjacentInlineToken(root: HTMLElement, key: string): boolean {
+  const selection = window.getSelection();
+  if (!selection || !selection.isCollapsed || !selection.rangeCount) return false;
+  const range = selection.getRangeAt(0);
+  let container: Node = range.startContainer;
+  let offset = range.startOffset;
+  if (container.nodeType === Node.TEXT_NODE && ((key === "Backspace" && offset !== 0) || (key === "Delete" && offset !== (container.textContent?.length ?? 0)))) return false;
+  if (container.nodeType === Node.TEXT_NODE) { offset = container.parentNode ? Array.from(container.parentNode.childNodes).indexOf(container as ChildNode) + (key === "Delete" ? 1 : 0) : offset; container = container.parentNode ?? root; }
+  const sibling = container.childNodes[offset + (key === "Backspace" ? -1 : 0)] as HTMLElement | undefined;
+  if (!sibling?.dataset.attachmentAlias) return false;
+  sibling.remove();
+  const nextRange = document.createRange();
+  nextRange.setStart(container, Math.max(0, offset + (key === "Backspace" ? -1 : 0)));
+  nextRange.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(nextRange);
+  root.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: key === "Backspace" ? "deleteContentBackward" : "deleteContentForward" }));
+  return true;
+}
+
+function inlineEditorOffset(root: HTMLElement, node: Node, offset: number): number {
+  let total = 0;
+  const walk = (current: Node): boolean => {
+    if (current === node) {
+      if (current instanceof HTMLElement && current.dataset.attachmentAlias) total += current.dataset.attachmentAlias.length;
+      else if (current.nodeType === Node.TEXT_NODE) total += offset;
+      else total += [...current.childNodes].slice(0, offset).reduce((length, child) => length + inlineNodeLength(child), 0);
+      return true;
+    }
+    if (current instanceof HTMLElement && current.dataset.attachmentAlias) {
+      total += current.dataset.attachmentAlias.length;
+      return false;
+    }
+    for (const child of current.childNodes) if (walk(child)) return true;
+    if (current.nodeType === Node.TEXT_NODE) total += current.textContent?.length ?? 0;
+    if (current !== root && current instanceof HTMLElement && (current.tagName === "DIV" || current.tagName === "P")) total += 1;
+    return false;
+  };
+  walk(root);
+  return total;
+}
+
 interface Props {
-  onSend: (message: string, images?: AttachedImage[]) => void;
+  onSend: (message: string, images?: AttachedImage[], files?: string[]) => void;
   onAbort: () => void;
-  onSteer?: (message: string, images?: AttachedImage[]) => void;
-  onFollowUp?: (message: string, images?: AttachedImage[]) => void;
-  onPromptWithStreamingBehavior?: (message: string, behavior: "steer" | "followUp", images?: AttachedImage[]) => void;
+  onSteer?: (message: string, images?: AttachedImage[], files?: string[]) => void;
+  onFollowUp?: (message: string, images?: AttachedImage[], files?: string[]) => void;
+  onPromptWithStreamingBehavior?: (message: string, behavior: "steer" | "followUp", images?: AttachedImage[], files?: string[]) => void;
   isStreaming: boolean;
   /** Text-only composer without the session controls or outer spacing. */
   compact?: boolean;
@@ -83,6 +235,9 @@ interface Props {
   draftKey?: string;
   /** Session working directory — enables the @ file autocomplete menu */
   cwd?: string | null;
+  onDropFiles?: (files: File[]) => void;
+  onOpenFile?: (filePath: string) => void;
+  onOpenFolder?: (folderPath: string) => void;
 }
 
 export interface ChatInputHandle {
@@ -93,8 +248,9 @@ export interface ChatInputHandle {
   prependText: (text: string) => void;
   addImages: (files: File[]) => void;
   clearIfValue: (text: string) => void;
+  addFiles: (files: AttachedFileInput[]) => void;
   rekeyDraft: (previousKey: string, nextKey: string) => void;
-  restoreSubmission: (text: string, images?: ChatDraftImage[], targetDraftKey?: string) => void;
+  restoreSubmission: (text: string, images?: ChatDraftImage[], targetDraftKey?: string, files?: string[]) => void;
 }
 
 // "configured" sends no override, so the session follows settings.json defaultTools.
@@ -569,6 +725,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onPromptWithStreamingBehavior,
   draftKey,
   cwd,
+  onDropFiles,
+  onOpenFile,
+  onOpenFolder,
   compact = false,
 }: Props, ref) {
   const { t } = useI18n();
@@ -580,6 +739,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [controlsMenuOpen, setControlsMenuOpen] = useState(false);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>(() => (
     draftKey ? draftImagesToAttachedImages(getDraft(draftKey)?.images) : []
+  ));
+  const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>(() => (
+    draftKey ? (getDraft(draftKey)?.files ?? []).map((name) => attachedFile(name, cwd)) : []
   ));
   const trimmedValue = value.trimStart();
   const bashMode = attachedImages.length === 0 && trimmedValue.startsWith("!");
@@ -608,6 +770,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     : {};
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const inlineEditorRef = useRef<HTMLDivElement>(null);
+  const pendingSelectionRef = useRef<{ start: number; end: number } | null>(null);
   const toolDropdownRef = useRef<HTMLDivElement>(null);
   const thinkingDropdownRef = useRef<HTMLDivElement>(null);
   const controlsMenuRef = useRef<HTMLDivElement>(null);
@@ -626,28 +790,134 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const draftKeyRef = useRef(draftKey);
   const valueRef = useRef(value);
   const attachedImagesRef = useRef(attachedImages);
+  const attachedFilesRef = useRef(attachedFiles);
+  const lastClearedFilesRef = useRef<AttachedFile[]>([]);
+  const lastClearedValueRef = useRef("");
   const pendingImageCountRef = useRef(0);
+  const [pendingImageCount, setPendingImageCount] = useState(0);
   valueRef.current = value;
   attachedImagesRef.current = attachedImages;
+  attachedFilesRef.current = attachedFiles;
+  const indexedFiles = fileIndex && fileIndex.cwd === cwd ? fileIndex.entries : [];
+  const serverFiles = atServerResult && atServerResult.cwd === cwd ? atServerResult.matches : [];
+  const mentionedFiles = [...indexedFiles, ...serverFiles]
+    .filter((entry, index, entries) => entries.findIndex((candidate) => candidate.path === entry.path) === index)
+    .map((entry) => ({
+      name: entry.path,
+      label: `${entry.path.split("/").pop() ?? entry.path}${entry.isDir ? "/" : ""}`,
+      path: cwd ? `${cwd}/${entry.path}` : entry.path,
+      folder: entry.isDir,
+    }));
+  const inlineFiles = [...attachedFiles, ...mentionedFiles].filter((file, index, files) => (
+    files.findIndex((candidate) => candidate.path === file.path && candidate.name === file.name) === index
+  ));
+  const hasInlineAttachments = inlineFiles.some((file) => containsAttachmentAlias(value, file));
+
+  const getInputSelection = useCallback(() => {
+    const editor = inlineEditorRef.current;
+    if (editor) {
+      const selection = window.getSelection();
+      const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+      if (range && editor.contains(range.startContainer)) {
+        return { start: inlineEditorOffset(editor, range.startContainer, range.startOffset), end: inlineEditorOffset(editor, range.endContainer, range.endOffset) };
+      }
+    }
+    const ta = textareaRef.current;
+    return { start: ta?.selectionStart ?? value.length, end: ta?.selectionEnd ?? value.length };
+  }, [value]);
+
+  const setInputSelection = useCallback((start: number, end = start) => {
+    const editor = inlineEditorRef.current;
+    if (!editor) {
+      const ta = textareaRef.current;
+      if (!ta) return;
+      ta.focus();
+      ta.setSelectionRange(start, end);
+      return;
+    }
+    const range = document.createRange();
+    let position = 0;
+    let startPoint: [Node, number] | null = null;
+    let endPoint: [Node, number] | null = null;
+    const walk = (node: Node) => {
+      if (node instanceof HTMLElement && node.dataset.attachmentAlias) {
+        const length = node.dataset.attachmentAlias.length;
+        const parent = node.parentNode ?? editor;
+        const index = [...parent.childNodes].indexOf(node);
+        // Keep a collapsed caret at a token boundary collapsed. A previous
+        // text node normally claims the boundary; these branches cover a
+        // token at the start of a line/editor.
+        if (!startPoint && start < position + length) startPoint = [parent, index];
+        if (!endPoint && end <= position) endPoint = [parent, index];
+        else if (!endPoint && end <= position + length) endPoint = [parent, index + 1];
+        position += length;
+        return;
+      }
+      if (node.nodeType === Node.TEXT_NODE) {
+        const length = node.textContent?.length ?? 0;
+        if (!startPoint && start <= position + length) startPoint = [node, start - position];
+        if (!endPoint && end <= position + length) endPoint = [node, end - position];
+        position += length;
+        return;
+      }
+      node.childNodes.forEach(walk);
+      if (node !== editor && node instanceof HTMLElement && (node.tagName === "DIV" || node.tagName === "P")) position += 1;
+    };
+    walk(editor);
+    const fallback: [Node, number] = [editor, editor.childNodes.length];
+    const s = startPoint ?? fallback;
+    const e = endPoint ?? s;
+    range.setStart(s[0], Math.max(0, s[1]));
+    range.setEnd(e[0], Math.max(0, e[1]));
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    editor.focus();
+  }, []);
+
+  const addAttachedFiles = useCallback((inputs: AttachedFileInput[]) => {
+    const additions = inputs.map((input) => (
+      typeof input === "string" ? attachedFile(input, cwd) : attachedFile(input.name, cwd, input.folder)
+    ));
+    setAttachedFiles((current) => {
+      const next = [
+        ...current,
+        ...additions.filter((file) => !current.some((existing) => (
+          existing.name === file.name && existing.folder === file.folder
+        ))),
+      ];
+      attachedFilesRef.current = next;
+      return next;
+    });
+  }, [cwd]);
+
+  useLayoutEffect(() => {
+    const editor = inlineEditorRef.current;
+    if (editor && serializeInlineEditor(editor) !== value) setInlineEditorContent(editor, value, inlineFiles);
+    const pending = pendingSelectionRef.current;
+    if (!pending || (!editor && !textareaRef.current)) return;
+    pendingSelectionRef.current = null;
+    setInputSelection(pending.start, pending.end);
+  }, [inlineFiles, hasInlineAttachments, setInputSelection, value]);
 
   useImperativeHandle(ref, () => ({
     insertIfEmpty(text: string) {
       const ta = textareaRef.current;
-      const current = ta ? ta.value : value;
+      const current = valueRef.current;
       if (current.trim()) return;
       valueRef.current = text;
       setValue(text);
       setAtQuery(null);
       requestAnimationFrame(() => {
+        setInputSelection(text.length, text.length);
         if (!ta) return;
-        ta.focus();
         ta.style.height = "auto";
         ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
       });
     },
     replaceMessage(message: UserMessage) {
       const ta = textareaRef.current;
-      const current = ta ? ta.value : value;
+      const current = valueRef.current;
       if (!canRestoreUserMessage(current, attachedImagesRef.current.length, pendingImageCountRef.current)) return;
 
       const restoredText = getUserMessageText(message);
@@ -661,9 +931,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         prev.forEach(revokeImagePreview);
         return restoredImages;
       });
+      attachedFilesRef.current = [];
+      setAttachedFiles([]);
       requestAnimationFrame(() => {
+        setInputSelection(restoredText.length, restoredText.length);
         if (!ta) return;
-        ta.focus();
         ta.style.height = "auto";
         ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
       });
@@ -671,7 +943,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     prependText(text: string) {
       if (!text.trim()) return;
       const ta = textareaRef.current;
-      const current = ta ? ta.value : value;
+      const current = valueRef.current;
       // Mirrors the TUI's queue restore: queued text first, then whatever
       // the user already typed, separated by a blank line.
       const combined = [text, current].filter((t) => t.trim()).join("\n\n");
@@ -679,9 +951,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       setValue(combined);
       setAtQuery(null);
       requestAnimationFrame(() => {
+        setInputSelection(combined.length, combined.length);
         if (!ta) return;
-        ta.focus();
-        ta.setSelectionRange(combined.length, combined.length);
         ta.style.height = "auto";
         ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
       });
@@ -696,6 +967,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       const currentDraft = {
         value: valueRef.current,
         images: attachedImagesRef.current.map(imageToDraftImage),
+        ...(attachedFilesRef.current.length ? { files: attachedFilesRef.current.map(draftFileName) } : {}),
       };
       const moved = rekeyStoredDraft(previousKey, nextKey, currentDraft) ?? { value: "", images: [] };
       const unchanged = moved.value === currentDraft.value
@@ -703,22 +975,27 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         && moved.images.every((image, index) => (
           image.data === currentDraft.images[index]?.data
           && image.mimeType === currentDraft.images[index]?.mimeType
-        ));
+        ))
+        && (moved.files ?? []).length === (currentDraft.files ?? []).length
+        && (moved.files ?? []).every((file, index) => file === currentDraft.files?.[index]);
       draftKeyRef.current = nextKey;
       if (unchanged) return;
 
       const movedImages = draftImagesToAttachedImages(moved.images);
+      const movedFiles = (moved.files ?? []).map((name) => attachedFile(name, cwd));
       valueRef.current = moved.value;
       attachedImagesRef.current = movedImages;
+      attachedFilesRef.current = movedFiles;
       setValue(moved.value);
       setAttachedImages((current) => {
         current.forEach(revokeImagePreview);
         return movedImages;
       });
+      setAttachedFiles(movedFiles);
       setAtQuery(null);
       setHistoryMenuOpen(false);
     },
-    restoreSubmission(text: string, images?: ChatDraftImage[], targetDraftKey?: string) {
+    restoreSubmission(text: string, images?: ChatDraftImage[], targetDraftKey?: string, files?: string[]) {
       if (!text.trim() && !images?.length) return;
 
       // clearInput is queued before the submission handler runs. Compose with
@@ -730,7 +1007,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       const storedDraft = !targetsCurrentComposer && destinationDraftKey
         ? getDraft(destinationDraftKey)
         : null;
-      const restoredDraft = mergeRestoredSubmissionDraft(
+      const restoredDraftBase = mergeRestoredSubmissionDraft(
         text,
         images,
         targetsCurrentComposer ? valueRef.current : (storedDraft?.value ?? ""),
@@ -738,11 +1015,28 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           ? attachedImagesRef.current.map(imageToDraftImage)
           : (storedDraft?.images ?? []),
       );
+      const clearedFiles = lastClearedFilesRef.current;
+      const currentFileNames = attachedFilesRef.current.map(draftFileName);
+      const fallbackFileNames = clearedFiles && lastClearedValueRef.current.trim() === text.trim()
+        ? clearedFiles.map(draftFileName)
+        : [];
+      const restoredFileNames = [...new Set(
+        targetsCurrentComposer
+          ? [...currentFileNames, ...(files ?? fallbackFileNames)]
+          : [...(files ?? []), ...(storedDraft?.files ?? [])],
+      )];
+      const restoredDraft = restoredFileNames.length
+        ? { ...restoredDraftBase, files: restoredFileNames }
+        : restoredDraftBase;
       // The first optimistic message switches ChatWindow out of its empty-state
       // layout and remounts this component. Persist synchronously so recovery is
       // not lost if this instance is the one being unmounted.
       if (destinationDraftKey) setDraft(destinationDraftKey, restoredDraft);
       if (!targetsCurrentComposer) return;
+      const restoredFiles = restoredFileNames.map((name) => attachedFile(name, cwd));
+      attachedFilesRef.current = restoredFiles;
+      setAttachedFiles(restoredFiles);
+      lastClearedFilesRef.current = [];
       const restoredImages = images?.length
         ? [
             ...draftImagesToAttachedImages(images).slice(
@@ -775,43 +1069,43 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       }
       requestAnimationFrame(() => {
         const ta = textareaRef.current;
+        setInputSelection(restoredDraft.value.length, restoredDraft.value.length);
         if (!ta) return;
-        ta.focus();
-        ta.setSelectionRange(ta.value.length, ta.value.length);
         ta.style.height = "auto";
         ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
       });
     },
     insertText(text: string) {
       const ta = textareaRef.current;
-      if (!ta) {
+      const selection = getInputSelection();
+      if (!ta && !inlineEditorRef.current) {
         setValue((v) => v + (v ? " " : "") + text);
         return;
       }
-      const start = ta.selectionStart ?? ta.value.length;
-      const end = ta.selectionEnd ?? ta.value.length;
-      const before = ta.value.slice(0, start);
-      const after = ta.value.slice(end);
+      const start = selection.start;
+      const end = selection.end;
+      const currentValue = valueRef.current;
+      const before = currentValue.slice(0, start);
+      const after = currentValue.slice(end);
       const sep = before.length > 0 && !before.endsWith(" ") ? " " : "";
       const newVal = before + sep + text + after;
       valueRef.current = newVal;
       setValue(newVal);
       setAtQuery(null);
       requestAnimationFrame(() => {
-        if (!ta) return;
         const pos = start + sep.length + text.length;
-        ta.setSelectionRange(pos, pos);
-        ta.focus();
-        ta.style.height = "auto";
-        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+        setInputSelection(pos, pos);
+        if (ta) {
+          ta.style.height = "auto";
+          ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+        }
       });
     },
     focusInput() {
       const ta = textareaRef.current;
-      if (!ta) return;
       requestAnimationFrame(() => {
-        ta.focus();
-        ta.setSelectionRange(ta.value.length, ta.value.length);
+        setInputSelection(valueRef.current.length, valueRef.current.length);
+        if (ta) ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
       });
     },
     addImages(files: File[]) {
@@ -821,6 +1115,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     // composer still holds exactly it, so a draft the user typed is never lost.
     clearIfValue(text: string) {
       if (shouldClearRestoredEdit(valueRef.current, text)) clearInput();
+    },
+    addFiles(files: AttachedFileInput[]) {
+      addAttachedFiles(files);
     },
   }));
 
@@ -835,6 +1132,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       .slice(0, remaining);
     if (!imageFiles.length) return;
     pendingImageCountRef.current += imageFiles.length;
+    setPendingImageCount(pendingImageCountRef.current);
     try {
       const newImages = await Promise.all(
         imageFiles.map(async (file) => ({
@@ -851,6 +1149,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       });
     } finally {
       pendingImageCountRef.current -= imageFiles.length;
+      setPendingImageCount(pendingImageCountRef.current);
     }
   }, [compact]);
 
@@ -873,6 +1172,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }, []);
 
   const clearInput = useCallback(() => {
+    lastClearedFilesRef.current = attachedFilesRef.current;
+    lastClearedValueRef.current = valueRef.current;
     valueRef.current = "";
     setValue("");
     setAtQuery(null);
@@ -880,6 +1181,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     if (draftKey) clearDraft(draftKey);
     if (draftKeyRef.current && draftKeyRef.current !== draftKey) clearDraft(draftKeyRef.current);
     clearImages();
+    attachedFilesRef.current = [];
+    setAttachedFiles([]);
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
@@ -890,8 +1193,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     setDraft(draftKey, {
       value,
       images: attachedImages.map(imageToDraftImage),
+      ...(attachedFiles.length ? { files: attachedFiles.map(draftFileName) } : {}),
     });
-  }, [attachedImages, draftKey, value]);
+  }, [attachedFiles, attachedImages, draftKey, value]);
 
   useEffect(() => {
     const previousDraftKey = draftKeyRef.current;
@@ -901,10 +1205,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       setDraft(previousDraftKey, {
         value: valueRef.current,
         images: attachedImagesRef.current.map(imageToDraftImage),
+        ...(attachedFilesRef.current.length ? { files: attachedFilesRef.current.map(draftFileName) } : {}),
       });
     }
 
     const draft = draftKey ? getDraft(draftKey) : null;
+    const nextFiles = (draft?.files ?? []).map((name) => attachedFile(name, cwd));
+    attachedFilesRef.current = nextFiles;
+    setAttachedFiles(nextFiles);
     draftKeyRef.current = draftKey;
     const nextValue = draft?.value ?? "";
     const nextImages = draftImagesToAttachedImages(draft?.images);
@@ -917,7 +1225,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       prev.forEach(revokeImagePreview);
       return nextImages;
     });
-  }, [draftKey]);
+  }, [cwd, draftKey]);
 
   const resizeTextarea = useCallback(() => {
     const ta = textareaRef.current;
@@ -966,14 +1274,15 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   const handleSend = useCallback(async () => {
     const msg = value.trim();
-    if (!msg && !attachedImages.length) return;
+    if (pendingImageCountRef.current > 0 || (!msg && !attachedImages.length)) return;
     onAudioUnlock?.();
     const builtinAllowed = !isStreaming || canRunBuiltinSlashCommandWhileStreaming(msg);
     if (builtinAllowed && await runBuiltinCommand(msg)) return;
     if (isStreaming) return;
+    const files = attachedFiles.map(draftFileName);
     clearInput();
-    onSend(msg, attachedImages.length ? attachedImages : undefined);
-  }, [value, attachedImages, isStreaming, runBuiltinCommand, onSend, clearInput, onAudioUnlock]);
+    onSend(msg, attachedImages.length ? attachedImages : undefined, files.length ? files : undefined);
+  }, [value, attachedFiles, attachedImages, isStreaming, runBuiltinCommand, onSend, clearInput, onAudioUnlock]);
 
   const slashQuery = !compact && value.startsWith("/") && !/\s/.test(value.slice(1))
     ? value.slice(1).toLowerCase()
@@ -1008,7 +1317,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     ? t(slashQuery ? "chat.match" : "chat.command")
     : t(slashQuery ? "chat.matches" : "chat.commands", { count: filteredSlashCommands.length });
   const hasInputText = Boolean(value.trim());
-  const canQueueStreamingMessage = hasInputText || attachedImages.length > 0;
+  const canQueueStreamingMessage = pendingImageCount === 0 && (hasInputText || attachedImages.length > 0);
   // Warn when images are attached but the selected model is known not to accept
   // image input (#584), including a resolved default. Unknown models stay silent.
   const showImageUnsupportedWarning = (
@@ -1114,8 +1423,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   const applyAtCompletion = useCallback((entry: FileIndexEntry) => {
     if (!atQuery) return;
-    const ta = textareaRef.current;
-    const cursor = ta?.selectionStart ?? value.length;
+    addAttachedFiles([{ name: entry.path, folder: entry.isDir }]);
+    const cursor = getInputSelection().start;
     const before = value.slice(0, atQuery.start);
     let after = value.slice(cursor);
     // Completing inside a quoted token (@"my dir/… with the caret before the
@@ -1133,14 +1442,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     // before the caret (token stays open for drill-down into the directory).
     setAtQuery(extractAtQuery(newValue.slice(0, newPos)));
     requestAnimationFrame(() => {
+      setInputSelection(newPos, newPos);
       const el = textareaRef.current;
-      if (!el) return;
-      el.focus();
-      el.setSelectionRange(newPos, newPos);
-      el.style.height = "auto";
-      el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+      if (el) {
+        el.style.height = "auto";
+        el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+      }
     });
-  }, [atQuery, value]);
+  }, [addAttachedFiles, atQuery, value, getInputSelection, setInputSelection]);
 
   useEffect(() => {
     if (atActiveIndex >= atMatches.length) {
@@ -1178,14 +1487,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     setHistoryActiveIndex(0);
     setAtQuery(null);
     requestAnimationFrame(() => {
+      setInputSelection(text.length, text.length);
       const ta = textareaRef.current;
       if (!ta) return;
-      ta.focus();
-      ta.setSelectionRange(text.length, text.length);
       ta.style.height = "auto";
       ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
     });
-  }, []);
+  }, [setInputSelection]);
 
   const applySlashCommand = useCallback((command: SlashCommandPaletteItem) => {
     const nextValue = `/${command.name} `;
@@ -1193,16 +1501,16 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     setSlashMenuOpen(false);
     setSlashActiveIndex(0);
     requestAnimationFrame(() => {
+      setInputSelection(nextValue.length, nextValue.length);
       const ta = textareaRef.current;
       if (!ta) return;
-      ta.focus();
-      ta.setSelectionRange(nextValue.length, nextValue.length);
       ta.style.height = "auto";
       ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
     });
-  }, []);
+  }, [setInputSelection]);
 
   const sendQueued = useCallback((mode: "steer" | "followup") => {
+    if (pendingImageCountRef.current > 0) return;
     const msg = value.trim();
     if (!msg && !attachedImages.length) return;
     onAudioUnlock?.();
@@ -1211,18 +1519,21 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       return;
     }
     const streamingBehavior = mode === "steer" ? "steer" : "followUp";
+    const files = attachedFiles.map(draftFileName);
+    const images = attachedImages.length ? attachedImages : undefined;
+    const fileNames = files.length ? files : undefined;
     if (msg.startsWith("/") && onPromptWithStreamingBehavior) {
       clearInput();
-      onPromptWithStreamingBehavior(msg, streamingBehavior, attachedImages.length ? attachedImages : undefined);
+      onPromptWithStreamingBehavior(msg, streamingBehavior, images, fileNames);
       return;
     }
     clearInput();
     if (mode === "steer" && onSteer) {
-      onSteer(msg, attachedImages.length ? attachedImages : undefined);
+      onSteer(msg, images, fileNames);
     } else if (mode === "followup" && onFollowUp) {
-      onFollowUp(msg, attachedImages.length ? attachedImages : undefined);
+      onFollowUp(msg, images, fileNames);
     }
-  }, [value, attachedImages, onBuiltinCommand, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearInput, onAudioUnlock, runBuiltinCommand]);
+  }, [value, attachedFiles, attachedImages, onBuiltinCommand, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearInput, onAudioUnlock, runBuiltinCommand]);
 
   const getNextSlashIndex = useCallback((direction: "up" | "down" | "left" | "right") => {
     const lastIndex = displayedSlashCommands.length - 1;
@@ -1411,7 +1722,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
   }, []);
 
-  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLElement>) => {
     const items = Array.from(e.clipboardData?.items ?? []);
     const imageItems = items.filter((item) => item.type.startsWith("image/"));
     if (!compact && imageItems.length) {
@@ -1439,19 +1750,24 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     const markdown = replaceLinksWithMarkdown(text, links);
     if (markdown === null) return;
 
-    const ta = e.currentTarget;
-    const start = ta.selectionStart;
-    const nextValue = ta.value.slice(0, start) + markdown + ta.value.slice(ta.selectionEnd);
+    const selection = getInputSelection();
+    const currentValue = valueRef.current;
+    const start = selection.start;
+    const nextValue = currentValue.slice(0, start) + markdown + currentValue.slice(selection.end);
     e.preventDefault();
     valueRef.current = nextValue;
     setValue(nextValue);
     setHistoryMenuOpen(false);
     updateAtQuery(nextValue, start + markdown.length);
     requestAnimationFrame(() => {
-      ta.focus();
-      ta.setSelectionRange(start + markdown.length, start + markdown.length);
+      setInputSelection(start + markdown.length, start + markdown.length);
+      const ta = textareaRef.current;
+      if (ta) {
+        ta.style.height = "auto";
+        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+      }
     });
-  }, [compact, processImageFiles, updateAtQuery]);
+  }, [compact, getInputSelection, processImageFiles, setInputSelection, updateAtQuery]);
 
   useEffect(() => {
     if (slashQuery === null) {
@@ -2038,6 +2354,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             return (
               <div
                 ref={atMenuRef}
+                data-file-autocomplete="true"
                 style={{
                   position: "absolute",
                   left: 0,
@@ -2146,14 +2463,120 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               padding: compact ? 0 : "10px 10px 10px 14px",
               boxShadow: compact ? "none" : "0 1px 2px rgba(15,23,42,0.04), 0 8px 24px -12px rgba(15,23,42,0.10)",
               transition: "border-color 0.15s, background 0.15s, box-shadow 0.15s",
+              position: "relative",
             } as React.CSSProperties}
           >
-          <textarea
+            {hasInlineAttachments && (
+              <div
+                ref={inlineEditorRef}
+                className="chat-input-textarea chat-input-inline-editor"
+                contentEditable
+                role="textbox"
+                aria-multiline="true"
+                aria-label={compact
+                  ? t("chat.quoteQuestion")
+                  : isStreaming && (onSteer || onFollowUp)
+                    ? t("chat.steerPlaceholder")
+                    : isStreaming ? t("chat.agentPlaceholder") : t("chat.messagePlaceholder")}
+                data-placeholder={isStreaming && (onSteer || onFollowUp) ? t("chat.steerPlaceholder") : t("chat.messagePlaceholder")}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onDropFiles?.(Array.from(e.dataTransfer.files));
+                }}
+                onClick={(e) => {
+                  const target = (e.target as HTMLElement).closest<HTMLElement>("[data-file-path]");
+                  const path = target?.dataset.filePath;
+                  if (path) {
+                    e.preventDefault();
+                    if (target.dataset.folder === "true") onOpenFolder?.(path);
+                    else onOpenFile?.(path);
+                  }
+                }}
+                onCompositionStart={() => {
+                  isComposingRef.current = true;
+                }}
+                onCompositionEnd={() => {
+                  isComposingRef.current = false;
+                  lastCompositionEndAtRef.current = Date.now();
+                  const editor = inlineEditorRef.current;
+                  if (editor) updateAtQuery(serializeInlineEditor(editor), getInputSelection().start);
+                }}
+                onInput={(e) => {
+                  const editor = e.currentTarget;
+                  const nextValue = serializeInlineEditor(editor);
+                  const selection = window.getSelection();
+                  const cursor = selection?.rangeCount ? inlineEditorOffset(editor, selection.getRangeAt(0).startContainer, selection.getRangeAt(0).startOffset) : nextValue.length;
+                  pendingSelectionRef.current = { start: cursor, end: cursor };
+                  valueRef.current = nextValue;
+                  setValue(nextValue);
+                  setAttachedFiles((current) => {
+                    const next = current.filter((file) => containsAttachmentAlias(nextValue, file));
+                    attachedFilesRef.current = next;
+                    return next;
+                  });
+                  setHistoryMenuOpen(false);
+                  updateAtQuery(nextValue, cursor);
+                }}
+                onKeyDown={(e) => {
+                  if ((e.key === "Home" || e.key === "End") && !e.shiftKey) {
+                    e.preventDefault();
+                    const position = e.key === "Home" ? 0 : valueRef.current.length;
+                    setInputSelection(position, position);
+                    return;
+                  }
+                  const token = (e.target as HTMLElement).closest<HTMLElement>("[data-file-path]");
+                  const tokenPath = token?.dataset.filePath;
+                  if (tokenPath && (e.key === "Enter" || e.key === " ")) {
+                    e.preventDefault();
+                    if (token?.dataset.folder === "true") onOpenFolder?.(tokenPath);
+                    else onOpenFile?.(tokenPath);
+                    return;
+                  }
+                  if (token?.dataset.attachmentAlias && (e.key === "Backspace" || e.key === "Delete")) {
+                    e.preventDefault();
+                    const parent = token.parentNode ?? e.currentTarget;
+                    const index = Array.from(parent.childNodes).indexOf(token);
+                    const position = inlineEditorOffset(e.currentTarget, parent, Math.max(0, index));
+                    token.remove();
+                    const range = document.createRange();
+                    range.setStart(parent, Math.max(0, Math.min(index, parent.childNodes.length)));
+                    range.collapse(true);
+                    const selection = window.getSelection();
+                    selection?.removeAllRanges();
+                    selection?.addRange(range);
+                    pendingSelectionRef.current = { start: position, end: position };
+                    e.currentTarget.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: e.key === "Backspace" ? "deleteContentBackward" : "deleteContentForward" }));
+                    return;
+                  }
+                  if ((e.key === "Backspace" || e.key === "Delete") && removeAdjacentInlineToken(e.currentTarget, e.key)) {
+                    e.preventDefault();
+                    return;
+                  }
+                  handleKeyDown(e as unknown as KeyboardEvent<HTMLTextAreaElement>);
+                }}
+                onPaste={(e) => {
+                  const items = Array.from(e.clipboardData?.items ?? []);
+                  const imageItems = items.filter((item) => item.type.startsWith("image/"));
+                  if (!compact && imageItems.length) {
+                    e.preventDefault();
+                    processImageFiles(imageItems.map((item) => item.getAsFile()).filter((file): file is File => file !== null));
+                  }
+                }}
+                style={{ flex: compact ? "none" : 1, minWidth: 0, width: "100%", minHeight: compact ? 96 : 24, maxHeight: 200, overflow: "auto", outline: "none", whiteSpace: "pre-wrap", overflowWrap: "anywhere", color: "var(--text)", fontSize: "var(--chat-content-font-size, 14px)", lineHeight: 1.6, fontFamily: "inherit" }}
+              />
+            )}
+            <textarea
             ref={textareaRef}
             className="chat-input-textarea"
             aria-label={compact ? t("chat.quoteQuestion") : undefined}
             value={value}
             onChange={(e) => {
+              pendingSelectionRef.current = { start: e.target.selectionStart, end: e.target.selectionEnd };
               valueRef.current = e.target.value;
               setValue(e.target.value);
               setHistoryMenuOpen(false);
@@ -2183,6 +2606,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             }
             rows={1}
             style={{
+              display: hasInlineAttachments ? "none" : undefined,
               flex: compact ? "none" : 1,
               minWidth: 0,
               width: "100%",
@@ -2190,13 +2614,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               border: "none",
               outline: "none",
               resize: "none",
-              color: "var(--text)",
               fontSize: "var(--chat-content-font-size, 14px)",
               lineHeight: 1.6,
               fontFamily: "inherit",
               minHeight: compact ? 96 : 24,
               maxHeight: 200,
               overflow: "auto",
+              color: "var(--text)",
             }}
           />
 
@@ -2254,7 +2678,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           ) : (
             <button
               onClick={handleSend}
-              disabled={!value.trim() && !attachedImages.length}
+              disabled={pendingImageCount > 0 || (!value.trim() && !attachedImages.length)}
               style={{
                 flexShrink: 0,
                 alignSelf: "flex-end",

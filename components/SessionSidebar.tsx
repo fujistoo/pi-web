@@ -5,10 +5,16 @@ import type { SessionInfo } from "@/lib/types";
 import { listSessionFamilies } from "@/lib/session-family";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
 import {
+  ACTIVE_CHAT_WINDOW_OPTIONS,
+  DEFAULT_ACTIVE_CHAT_WINDOW_HOURS,
   CHAT_PROJECT_COLORS,
+  loadActiveChatProjectSelection,
+  loadActiveChatWindowHours,
   loadChatProjectState,
   moveChatProject,
   moveChatProjectTo,
+  saveActiveChatProjectSelection,
+  saveActiveChatWindowHours,
   saveChatProjectState,
   type ChatProject,
 } from "@/lib/chat-project-state";
@@ -174,6 +180,7 @@ interface Props {
   onRunningSessionIdsChange?: (ids: Set<string>) => void;
   onSessionsChange?: (sessions: SessionInfo[]) => void;
   prioritizedSessionId?: string | null;
+  revealFilePath?: { path: string; requestId: number } | null;
 }
 
 interface WorktreeEntry {
@@ -217,6 +224,7 @@ const SESSION_PANE_MIN_HEIGHT = 80;
 const EXPLORER_PANE_MIN_HEIGHT = 120;
 const SESSION_PANE_MAX_HEIGHT = 1600;
 
+export const ACTIVE_CHAT_PROJECT_ID = "__active__";
 export const ARCHIVED_CHAT_PROJECT_ID = "__archived__";
 
 const chatProjectButtonStyle: CSSProperties = {
@@ -277,6 +285,32 @@ export function filterSessionsForChatProject(
     return !archivedSessionIds.has(rootId)
       && (selectedChatProjectId === null || assignments[rootId] === selectedChatProjectId);
   });
+}
+
+export function filterSessionsForActiveChatProject(
+  sessions: readonly SessionInfo[],
+  runningSessionIds: ReadonlySet<string>,
+  archivedSessionIds: ReadonlySet<string>,
+  activeSince: number,
+): SessionInfo[] {
+  const byId = new Map(sessions.map((session) => [session.id, session]));
+  const activeRoots = new Set<string>();
+  for (const session of sessions) {
+    const rootId = chatProjectRootIdFromMap(session, byId);
+    if (archivedSessionIds.has(rootId)) continue;
+    const modified = Date.parse(session.modified);
+    if (runningSessionIds.has(session.id) || (Number.isFinite(modified) && modified >= activeSince)) {
+      activeRoots.add(rootId);
+    }
+  }
+  return sessions.filter((session) => {
+    const rootId = chatProjectRootIdFromMap(session, byId);
+    return activeRoots.has(rootId) && !archivedSessionIds.has(rootId);
+  });
+}
+
+function formatActiveChatWindow(hours: number): string {
+  return hours >= 24 && hours % 24 === 0 ? `${hours / 24}d` : `${hours}h`;
 }
 
 
@@ -401,6 +435,8 @@ function AnimatedDropdown({ open, children, style }: { open: boolean; children: 
 
 
 const SCRAMBLE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*";
+const TITLE_CYCLE_MS = 5000;
+const TITLE_SCRAMBLE_MS = 450;
 
 function useScramble(target: string, running: boolean): string {
   const [display, setDisplay] = useState(target);
@@ -448,34 +484,33 @@ function useScramble(target: string, running: boolean): string {
 function PiWebTitle() {
   const [showVersion, setShowVersion] = useState(false);
   const [scrambling, setScrambling] = useState(false);
-  const revertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scrambleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [displayName] = useDisplayName();
   const target = showVersion ? `${process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}p${process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}` : displayName;
   const display = useScramble(target, scrambling);
 
-  const triggerScramble = useCallback((toVersion: boolean) => {
-    setShowVersion(toVersion);
+  const switchTitle = useCallback(() => {
+    setShowVersion((current) => !current);
     setScrambling(true);
-    setTimeout(() => setScrambling(false), (toVersion ? 6 : 8) * 4 * (1000 / 60) + 100);
+    if (scrambleTimerRef.current) clearTimeout(scrambleTimerRef.current);
+    scrambleTimerRef.current = setTimeout(() => {
+      scrambleTimerRef.current = null;
+      setScrambling(false);
+    }, TITLE_SCRAMBLE_MS);
   }, []);
 
-  const handleClick = useCallback(() => {
-    if (revertTimerRef.current) clearTimeout(revertTimerRef.current);
-
-    const next = !showVersion;
-    triggerScramble(next);
-
-    if (next) {
-      revertTimerRef.current = setTimeout(() => triggerScramble(false), 3000);
-    }
-  }, [showVersion, triggerScramble]);
-
-  useEffect(() => () => { if (revertTimerRef.current) clearTimeout(revertTimerRef.current); }, []);
+  useEffect(() => {
+    const interval = setInterval(switchTitle, TITLE_CYCLE_MS);
+    return () => {
+      clearInterval(interval);
+      if (scrambleTimerRef.current) clearTimeout(scrambleTimerRef.current);
+    };
+  }, [switchTitle]);
 
   return (
     <button
-      onClick={handleClick}
+      onClick={switchTitle}
       style={{
         background: "none", border: "none", padding: 0, cursor: "default",
         fontWeight: 700, fontSize: 15, letterSpacing: "-0.01em",
@@ -489,7 +524,7 @@ function PiWebTitle() {
   );
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange, prioritizedSessionId }: Props) {
+export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange, prioritizedSessionId, revealFilePath }: Props) {
   const { t } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   // Tracked in a ref only: the version is compared against the polled value to
@@ -528,6 +563,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [sessionSearchQuery, setSessionSearchQuery] = useState("");
   const [chatProjects, setChatProjects] = useState<ChatProject[]>([]);
   const [chatProjectId, setChatProjectId] = useState<string | null>(null);
+  const [activeChatProjectSelectionReady, setActiveChatProjectSelectionReady] = useState(false);
+  const [activeChatWindowHours, setActiveChatWindowHours] = useState(DEFAULT_ACTIVE_CHAT_WINDOW_HOURS);
+  const [activeChatWindowReady, setActiveChatWindowReady] = useState(false);
+  const [activeChatWindowOpen, setActiveChatWindowOpen] = useState(false);
+  const [activeChatNow, setActiveChatNow] = useState(() => Date.now());
   const [chatProjectComposerOpen, setChatProjectComposerOpen] = useState(false);
   const [chatProjectDraft, setChatProjectDraft] = useState("");
   const [chatProjectEditingId, setChatProjectEditingId] = useState<string | null>(null);
@@ -559,6 +599,15 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const detailsHydrationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const explorerRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileExplorerRef = useRef<FileExplorerHandle>(null);
+
+  useEffect(() => {
+    if (!revealFilePath) return;
+    if (!explorerOpen) {
+      setExplorerOpen(true);
+      return;
+    }
+    fileExplorerRef.current?.revealPath(revealFilePath.path);
+  }, [explorerOpen, revealFilePath]);
 
   // Virtualized session list: only the visible window of rows is mounted.
   const listScrollRef = useRef<HTMLDivElement>(null);
@@ -598,7 +647,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [listViewportH, setListViewportH] = useState(0);
   const [listScrollTop, setListScrollTop] = useState(0);
   const [focusedSessionId, setFocusedSessionId] = useState<string | null>(null);
-  const [collapsedFamilyIds, setCollapsedFamilyIds] = useState<Set<string>>(new Set());
+  // Keep subagent rows out of the default sidebar view. Explicitly expanded
+  // families stay expanded across catalog refreshes.
+  const [expandedFamilyIds, setExpandedFamilyIds] = useState<Set<string>>(new Set());
   const listScrollRafRef = useRef<number | null>(null);
   const handleListScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     const top = e.currentTarget.scrollTop;
@@ -665,10 +716,14 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     }
   }, []);
 
-  const initialLoadDone = useRef(false);
+  const loadedRefreshKeyRef = useRef<number | null>(null);
+  const effectiveRefreshKey = refreshKey ?? 0;
   useEffect(() => {
-    const isFirst = !initialLoadDone.current;
-    initialLoadDone.current = true;
+    // React can replay effects in development. Keying this guard by the actual
+    // refresh key avoids turning that replay into a second forced scan.
+    if (loadedRefreshKeyRef.current === effectiveRefreshKey) return;
+    const isFirst = loadedRefreshKeyRef.current === null;
+    loadedRefreshKeyRef.current = effectiveRefreshKey;
     let active = true;
 
     if (isFirst) {
@@ -693,7 +748,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         detailsHydrationTimerRef.current = null;
       }
     };
-  }, [loadSessions, refreshKey]);
+  }, [effectiveRefreshKey, loadSessions]);
 
   // Browser storage is unavailable during server rendering. Restore the panel
   // preference after hydration so a collapsed explorer stays collapsed on reload.
@@ -708,6 +763,28 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     setPinnedSessionIds(new Set(saved.pinnedSessionIds));
     setArchivedSessionIds(new Set(saved.archivedSessionIds));
     setChatProjectStorageReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (loadActiveChatProjectSelection()) setChatProjectId(ACTIVE_CHAT_PROJECT_ID);
+    setActiveChatProjectSelectionReady(true);
+    setActiveChatWindowHours(loadActiveChatWindowHours());
+    setActiveChatWindowReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!activeChatProjectSelectionReady) return;
+    saveActiveChatProjectSelection(chatProjectId === ACTIVE_CHAT_PROJECT_ID);
+  }, [activeChatProjectSelectionReady, chatProjectId]);
+
+  useEffect(() => {
+    if (!activeChatWindowReady) return;
+    saveActiveChatWindowHours(activeChatWindowHours);
+  }, [activeChatWindowHours, activeChatWindowReady]);
+
+  useEffect(() => {
+    const timer = setInterval(() => setActiveChatNow(Date.now()), 60_000);
+    return () => clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -1229,6 +1306,16 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   const chatConversationCount = allSessions.filter((session) => session.relation?.kind !== "subagent" && !archivedSessionIds.has(session.id)).length;
   const archivedChatCount = allSessions.filter((session) => session.relation?.kind !== "subagent" && archivedSessionIds.has(session.id)).length;
+  const activeChatSessions = useMemo(
+    () => filterSessionsForActiveChatProject(
+      allSessions,
+      runningSessionIds,
+      archivedSessionIds,
+      activeChatNow - activeChatWindowHours * 60 * 60 * 1000,
+    ),
+    [activeChatNow, activeChatWindowHours, allSessions, archivedSessionIds, runningSessionIds],
+  );
+  const activeChatConversationCount = activeChatSessions.filter((session) => session.relation?.kind !== "subagent").length;
   const chatContextSession = chatContextMenu
     ? allSessions.find((session) => session.id === chatContextMenu.sessionId) ?? null
     : null;
@@ -1336,11 +1423,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   );
   // A chat project intentionally spans directories. The filesystem project
   // filter remains active only in the default All conversations view.
-  const filteredSessions = chatProjectId !== null
-    ? chatFilteredSessions
-    : selectedProject
-      ? sessionsForProject(chatFilteredSessions, selectedProject.key)
-      : chatFilteredSessions;
+  const filteredSessions = chatProjectId === ACTIVE_CHAT_PROJECT_ID
+    ? activeChatSessions
+    : chatProjectId !== null
+      ? chatFilteredSessions
+      : selectedProject
+        ? sessionsForProject(chatFilteredSessions, selectedProject.key)
+        : chatFilteredSessions;
   const showWorktreeSwitcher = Boolean(
     worktreeState?.isGit
     && worktreeState.isTopLevel
@@ -1379,6 +1468,14 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     const [prioritizedFamily] = sessionFamilies.splice(prioritizedFamilyIndex, 1);
     sessionFamilies.unshift(prioritizedFamily);
   }
+  const collapsedFamilyIds = useMemo(
+    () => new Set(
+      sessionFamilies
+        .filter((family) => family.subagents.length > 0 && !expandedFamilyIds.has(family.root.id))
+        .map((family) => family.root.id),
+    ),
+    [expandedFamilyIds, sessionFamilies],
+  );
   const sessionRows = getSessionRows(sessionFamilies, collapsedFamilyIds);
   const focusedRowIndex = getFocusedSessionRowIndex(sessionRows, focusedSessionId);
 
@@ -1587,6 +1684,49 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               <span style={{ flex: 1 }}>{t("sidebar.allChats")}</span>
               <span style={chatProjectCountStyle}>{chatConversationCount}</span>
             </button>
+            <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+              <button
+                ref={chatProjectId === ACTIVE_CHAT_PROJECT_ID ? activeChatFolderRef : undefined}
+                type="button"
+                onClick={() => { setChatProjectId(ACTIVE_CHAT_PROJECT_ID); setChatContextMenu(null); }}
+                title={t("sidebar.activeChatsTitle", { hours: formatActiveChatWindow(activeChatWindowHours) })}
+                style={{ ...chatProjectButtonStyle, flex: 1, minWidth: 0, background: chatProjectId === ACTIVE_CHAT_PROJECT_ID ? "var(--bg-selected)" : "transparent", color: chatProjectId === ACTIVE_CHAT_PROJECT_ID ? "var(--text)" : "var(--text-muted)" }}
+              >
+                <span style={{ ...chatProjectIconStyle, color: "var(--accent)" }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: "currentColor" }} /></span>
+                <span style={{ flex: 1 }}>{t("sidebar.activeChats")}</span>
+                <span style={chatProjectCountStyle}>{activeChatConversationCount}</span>
+              </button>
+              <button
+                type="button"
+                title={t("sidebar.configureActiveChats")}
+                aria-label={t("sidebar.configureActiveChats")}
+                aria-expanded={activeChatWindowOpen}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setActiveChatWindowOpen((open) => !open);
+                }}
+                style={{ width: 26, height: 28, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, padding: 0, border: "none", borderRadius: 5, background: activeChatWindowOpen ? "var(--bg-selected)" : "transparent", color: "var(--text-dim)", cursor: "pointer" }}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="8" /><path d="M12 8v4l2.5 1.5" />
+                </svg>
+              </button>
+            </div>
+            {activeChatWindowOpen && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 7px 6px", color: "var(--text-muted)", fontSize: 10 }}>
+                <label htmlFor="active-chat-window" style={{ flex: 1 }}>{t("sidebar.activeChatsWindow")}</label>
+                <select
+                  id="active-chat-window"
+                  value={activeChatWindowHours}
+                  onChange={(event) => setActiveChatWindowHours(Number(event.currentTarget.value))}
+                  style={{ height: 25, padding: "0 4px", border: "1px solid var(--border)", borderRadius: 5, background: "var(--bg-hover)", color: "var(--text)", fontSize: 11 }}
+                >
+                  {ACTIVE_CHAT_WINDOW_OPTIONS.map((hours) => (
+                    <option key={hours} value={hours}>{formatActiveChatWindow(hours)}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             {chatProjectStats.map((project) => (
               <div
                 key={project.id}
@@ -2348,7 +2488,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                       }}
                       hasChildren={family.subagents.length > 0}
                       collapsed={collapsedFamilyIds.has(family.root.id)}
-                      onToggleCollapse={() => setCollapsedFamilyIds((previous) => {
+                      onToggleCollapse={() => setExpandedFamilyIds((previous) => {
                         const next = new Set(previous);
                         if (next.has(family.root.id)) next.delete(family.root.id);
                         else next.add(family.root.id);

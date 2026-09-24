@@ -10,6 +10,7 @@ const os = require("node:os");
 const path = require("node:path");
 
 const SERVICE_LABEL = "com.agegr.pi-web";
+const WORKER_SERVICE_LABEL = "com.agegr.pi-web.agent-worker";
 const OWNERSHIP_MARKER = "<!-- Managed by @agegr/pi-web. Do not edit. -->";
 
 function assertSupportedPlatform(platform = process.platform) {
@@ -32,6 +33,16 @@ function getServicePaths(homeDir = os.homedir()) {
   };
 }
 
+function getWorkerServicePaths(homeDir = os.homedir()) {
+  const paths = getServicePaths(homeDir);
+  return {
+    ...paths,
+    plistPath: path.join(paths.launchAgentsDir, `${WORKER_SERVICE_LABEL}.plist`),
+    stdoutPath: path.join(paths.logDir, "pi-web-agent-worker.log"),
+    stderrPath: path.join(paths.logDir, "pi-web-agent-worker.error.log"),
+  };
+}
+
 function xmlEscape(value) {
   return String(value).replace(/[&<>"']/g, (character) => ({
     "&": "&amp;",
@@ -49,6 +60,8 @@ function serializePlist({
   environmentVariables = {},
   stdoutPath,
   stderrPath,
+  runAtLoad = true,
+  keepAlive = true,
 }) {
   const lines = [
     '<?xml version="1.0" encoding="UTF-8"?>',
@@ -73,9 +86,9 @@ function serializePlist({
       ]),
     "  </dict>",
     "  <key>RunAtLoad</key>",
-    "  <true/>",
+    `  <${runAtLoad ? "true" : "false"}/>`,
     "  <key>KeepAlive</key>",
-    "  <true/>",
+    `  <${keepAlive ? "true" : "false"}/>`,
     `  <key>StandardOutPath</key>\n  <string>${xmlEscape(stdoutPath)}</string>`,
     `  <key>StandardErrorPath</key>\n  <string>${xmlEscape(stderrPath)}</string>`,
     "</dict>",
@@ -114,15 +127,33 @@ function createServicePlist({
   });
 }
 
-function isManagedPlist(contents) {
-  return contents.includes(OWNERSHIP_MARKER)
-    && contents.includes(`<key>Label</key>\n  <string>${SERVICE_LABEL}</string>`);
+function createWorkerServicePlist({
+  nodePath = process.execPath,
+  workerScriptPath,
+  packageDir,
+  environment = process.env,
+  paths = getWorkerServicePaths(),
+}) {
+  return serializePlist({
+    label: WORKER_SERVICE_LABEL,
+    programArguments: [nodePath, workerScriptPath],
+    workingDirectory: packageDir,
+    environmentVariables: { ...environment, PI_WEB_PACKAGE_DIR: packageDir },
+    stdoutPath: paths.stdoutPath,
+    stderrPath: paths.stderrPath,
+    keepAlive: false,
+  });
 }
 
-function readExistingPlist(plistPath) {
+function isManagedPlist(contents, label = SERVICE_LABEL) {
+  return contents.includes(OWNERSHIP_MARKER)
+    && contents.includes(`<key>Label</key>\n  <string>${label}</string>`);
+}
+
+function readExistingPlist(plistPath, label = SERVICE_LABEL) {
   try {
     const contents = fs.readFileSync(plistPath, "utf8");
-    if (!isManagedPlist(contents)) {
+    if (!isManagedPlist(contents, label)) {
       throw new Error(
         `Refusing to overwrite ${plistPath}: it is not a Pi Web LaunchAgent.`,
       );
@@ -134,8 +165,8 @@ function readExistingPlist(plistPath) {
   }
 }
 
-function writePlist(plistPath, contents) {
-  const existing = readExistingPlist(plistPath);
+function writePlist(plistPath, contents, label = SERVICE_LABEL) {
+  const existing = readExistingPlist(plistPath, label);
   if (existing === contents) return false;
 
   fs.mkdirSync(path.dirname(plistPath), { recursive: true, mode: 0o700 });
@@ -200,16 +231,54 @@ function requireLaunchctlSuccess(result, args) {
   );
 }
 
-function makeOptions(options) {
+function makeOptions(options = {}) {
   const paths = options.paths ?? getServicePaths(options.homeDir);
+  const workerPaths = options.workerPaths ?? getWorkerServicePaths(options.homeDir);
   const context = getServiceContext(options);
   const runLaunchctl = options.runLaunchctl
     ?? ((args) => defaultLaunchctl(args, options.environment ?? process.env));
-  return { ...options, paths, ...context, runLaunchctl };
+  return {
+    ...options,
+    paths,
+    workerPaths,
+    ...context,
+    workerServiceTarget: `${context.domain}/${WORKER_SERVICE_LABEL}`,
+    runLaunchctl,
+  };
+}
+
+function ensureWorkerService(service) {
+  fs.mkdirSync(service.workerPaths.logDir, { recursive: true, mode: 0o700 });
+  const workerScriptPath = service.workerScriptPath
+    ?? path.join(service.packageDir, "bin", "pi-web-agent-worker.js");
+  const plist = createWorkerServicePlist({
+    ...service,
+    workerScriptPath,
+    paths: service.workerPaths,
+  });
+  const changed = writePlist(service.workerPaths.plistPath, plist, WORKER_SERVICE_LABEL);
+  let state = inspectService(service.runLaunchctl, service.workerServiceTarget);
+  if (state.loaded && changed && !state.running) {
+    const args = ["bootout", service.workerServiceTarget];
+    requireLaunchctlSuccess(service.runLaunchctl(args), args);
+    state = { loaded: false, running: false };
+  }
+  if (!state.loaded) {
+    const args = ["bootstrap", service.domain, service.workerPaths.plistPath];
+    requireLaunchctlSuccess(service.runLaunchctl(args), args);
+    return { loaded: true, running: true };
+  }
+  if (!state.running) {
+    const args = ["kickstart", "-k", service.workerServiceTarget];
+    requireLaunchctlSuccess(service.runLaunchctl(args), args);
+    return { loaded: true, running: true };
+  }
+  return state;
 }
 
 function startService(options) {
   const service = makeOptions(options);
+  ensureWorkerService(service);
   fs.mkdirSync(service.paths.logDir, { recursive: true, mode: 0o700 });
   const plist = createServicePlist({ ...options, paths: service.paths });
   const changed = writePlist(service.paths.plistPath, plist);
@@ -219,10 +288,8 @@ function startService(options) {
     return { message: "Pi Web service is already running.", paths: service.paths };
   }
   if (state.loaded && changed) {
-    requireLaunchctlSuccess(
-      service.runLaunchctl(["bootout", service.serviceTarget]),
-      ["bootout", service.serviceTarget],
-    );
+    const args = ["bootout", service.serviceTarget];
+    requireLaunchctlSuccess(service.runLaunchctl(args), args);
   }
 
   const action = state.loaded && !changed ? "kickstart" : "bootstrap";
@@ -236,18 +303,35 @@ function startService(options) {
 function stopService(options) {
   const service = makeOptions(options);
   if (fs.existsSync(service.paths.plistPath)) readExistingPlist(service.paths.plistPath);
+  if (fs.existsSync(service.workerPaths.plistPath)) {
+    readExistingPlist(service.workerPaths.plistPath, WORKER_SERVICE_LABEL);
+  }
+  const workerState = inspectService(service.runLaunchctl, service.workerServiceTarget);
+  if (workerState.loaded) {
+    const args = ["bootout", service.workerServiceTarget];
+    requireLaunchctlSuccess(service.runLaunchctl(args), args);
+  }
   const state = inspectService(service.runLaunchctl, service.serviceTarget);
-  if (!state.loaded) {
+  if (state.loaded) {
+    const args = ["bootout", service.serviceTarget];
+    requireLaunchctlSuccess(service.runLaunchctl(args), args);
+  }
+  if (!state.loaded && !workerState.loaded) {
     return { message: "Pi Web service is not running.", paths: service.paths };
   }
-
-  const args = ["bootout", service.serviceTarget];
-  requireLaunchctlSuccess(service.runLaunchctl(args), args);
   return { message: "Pi Web service stopped.", paths: service.paths };
 }
 
 function restartService(options) {
-  stopService(options);
+  const service = makeOptions(options);
+  if (fs.existsSync(service.paths.plistPath)) readExistingPlist(service.paths.plistPath);
+  const state = inspectService(service.runLaunchctl, service.serviceTarget);
+  if (state.loaded) {
+    const args = ["bootout", service.serviceTarget];
+    requireLaunchctlSuccess(service.runLaunchctl(args), args);
+  }
+  // Deliberately leave the worker LaunchAgent alone: restart is safe for an
+  // active task. Explicit `stop` is the destructive lifecycle operation.
   return startService(options);
 }
 
@@ -264,15 +348,26 @@ function reloadService(options = {}) {
 function statusService(options) {
   const service = makeOptions(options);
   if (fs.existsSync(service.paths.plistPath)) readExistingPlist(service.paths.plistPath);
+  if (fs.existsSync(service.workerPaths.plistPath)) {
+    readExistingPlist(service.workerPaths.plistPath, WORKER_SERVICE_LABEL);
+  }
   const state = inspectService(service.runLaunchctl, service.serviceTarget);
+  const worker = inspectService(service.runLaunchctl, service.workerServiceTarget);
   const status = state.running
     ? "running"
     : state.loaded
       ? "not running (loaded but inactive)"
       : "not running (not loaded)";
+  const workerStatus = worker.running
+    ? "running"
+    : worker.loaded
+      ? "not running (loaded but inactive)"
+      : "not running (not loaded)";
   return {
-    message: `Pi Web service: ${status}\nLaunchAgent: ${service.paths.plistPath}\nLogs: ${service.paths.logDir}`,
+    message: `Pi Web service: ${status}\nAgent worker: ${workerStatus}\nLaunchAgent: ${service.paths.plistPath}\nWorker LaunchAgent: ${service.workerPaths.plistPath}\nLogs: ${service.paths.logDir}`,
     paths: service.paths,
+    workerPaths: service.workerPaths,
+    worker,
     ...state,
   };
 }
@@ -289,9 +384,12 @@ function runServiceCommand(command, options) {
 module.exports = {
   OWNERSHIP_MARKER,
   SERVICE_LABEL,
+  WORKER_SERVICE_LABEL,
   assertSupportedPlatform,
   createServicePlist,
+  createWorkerServicePlist,
   getServicePaths,
+  getWorkerServicePaths,
   isManagedPlist,
   reloadService,
   restartService,

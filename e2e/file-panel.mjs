@@ -12,7 +12,7 @@ export async function checkFilePanel(page, filePath) {
   // The DOM title normalizes Windows paths to forward slashes
   // (lib/file-paths.ts normalizeFilePathSlashes), so match in that form.
   await page.getByTitle(filePath.replace(/\\/g, "/"), { exact: true }).click();
-  const panel = page.locator("#file-panel");
+  const panel = page.locator("#resource-panel");
   const iframe = panel.locator("iframe");
   await iframe.waitFor();
   const frame = await (await iframe.elementHandle()).contentFrame();

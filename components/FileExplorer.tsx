@@ -47,6 +47,7 @@ interface Props {
 
 export interface FileExplorerHandle {
   openUploadPicker: () => void;
+  revealPath: (path: string) => void;
 }
 
 type UploadPhase = "idle" | "checking" | "uploading";
@@ -273,6 +274,11 @@ function TreeNode({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshToken]);
+
+  // External mentions can expand a path without a click on each ancestor.
+  useEffect(() => {
+    if (open && !loaded) void loadChildren();
+  }, [loadChildren, loaded, open]);
 
   const handleClick = useCallback(() => {
     if (node.isDir) {
@@ -807,7 +813,25 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     openUploadPicker() {
       if (!uploadBusy) uploadInputRef.current?.click();
     },
-  }), [uploadBusy]);
+    revealPath(path: string) {
+      const root = normalizeFilePathSlashes(cwd).replace(/\/$/, "");
+      const normalized = normalizeFilePathSlashes(path).replace(/\/$/, "");
+      if (normalized === root || !normalized.startsWith(`${root}/`)) return;
+      const ancestors: string[] = [];
+      let current = normalized;
+      while (current !== root && current.startsWith(`${root}/`)) {
+        ancestors.unshift(current);
+        const parent = getFileDirectory(current);
+        if (parent === current) break;
+        current = parent;
+      }
+      setExpandedPaths((previous) => {
+        const next = new Set(previous);
+        ancestors.forEach((ancestor) => next.add(ancestor));
+        return next;
+      });
+    },
+  }), [cwd, uploadBusy]);
 
   useEffect(() => {
     onUploadBusyChange?.(uploadBusy);

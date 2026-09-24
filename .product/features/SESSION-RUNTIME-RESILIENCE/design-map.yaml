@@ -1,0 +1,41 @@
+reuse_map:
+  runtime_owner:
+    existing:
+      - lib/rpc-manager.ts AgentSessionWrapper and lifecycle
+      - lib/session-liveness.ts lease/idle protection
+    change: Move runtime ownership behind an independently supervised agent worker; keep wrapper semantics.
+  transport:
+    existing:
+      - lib/agent-event-stream.ts
+      - lib/agent-event-connection.ts
+      - app/api/agent/[id]/events/route.ts
+    change: Add worker IPC, authoritative snapshots, monotonic event cursor/replay, and keep browser SSE endpoint stable.
+  ui_recovery:
+    existing:
+      - hooks/useAgentSession.ts
+      - /api/agent/[id] state route
+    change: >-
+      Use running/idle/unknown state; never complete on transport loss; hydrate state and extension status/widgets on
+      reconnect.
+  lifecycle:
+    existing:
+      - bin/mac-service.js
+      - bin/process-lifecycle.js
+      - PI_WEB_IDLE_TIMEOUT_MS
+    change: >-
+      Run worker as a separate launchd job/on-demand process; stop it only for explicit full shutdown; dispose idle
+      sessions and exit when empty.
+  persistence:
+    existing:
+      - Pi SessionManager JSONL
+      - session-reader.ts
+    change: Persist worker run metadata/heartbeat and use JSONL for history/backfill, not as the sole live-state source.
+annotations:
+  - type: constraint
+    text: Do not add a client conversation cache; this is a runtime ownership/reconnect problem.
+  - type: constraint
+    text: A worker spawned as a normal child of Next.js is not sufficient; its lifecycle must be independent.
+  - type: boundary
+    text: SoL-Pi's CLI-only custom renderer remains separate from worker state recovery.
+version: 1
+feature: SESSION-RUNTIME-RESILIENCE

@@ -1,0 +1,38 @@
+baseline: 1
+actors:
+  - Pi user
+  - observed Pi agent
+  - observed child agent
+requirements:
+  R1:
+    statement: >-
+      Pi remains the sole execution owner; the Pixel Agents office is a read-only visualization and cannot change agent
+      execution when opened or closed.
+    priority: must
+    source: pi-pixel-agents-implementation-plan.md §1-2
+  R2:
+    statement: >-
+      The user-facing animated office is available inside pi-web's existing session-level Agents experience, without
+      requiring the user to leave pi-web.
+    priority: must
+    source: User clarification, 2026-09-12
+  R3:
+    statement: >-
+      The integration reuses pi-web's existing design language, tokens, components, responsive behavior, accessibility,
+      and reduced-motion support; Pixel Agents visuals must not introduce a competing application shell.
+    priority: must
+    source: User clarification, 2026-09-12
+  R4:
+    statement: >-
+      Taste Skill may be referenced as inspiration for purposeful motion and anti-generic composition, but is not a
+      runtime dependency or visual source of truth.
+    priority: should
+    source: User clarification, 2026-09-12; https://www.tasteskill.dev/
+  R5:
+    statement: >-
+      Agent selection and animation views remain observational; selecting an avatar must not execute commands, launch
+      agents, approve tools, or send prompts.
+    priority: must
+    source: pi-pixel-agents-implementation-plan.md §2
+version: 1
+feature: PI-PIXEL-AGENTS

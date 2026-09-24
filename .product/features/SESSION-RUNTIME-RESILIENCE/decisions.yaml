@@ -1,0 +1,22 @@
+version: 1
+feature: SESSION-RUNTIME-RESILIENCE
+items:
+  - title: Use an independently supervised, on-demand agent worker
+    decision: >-
+      AgentSession execution will move behind a separate worker process/service rather than remaining in the Next.js
+      process. Routine Pi Web restart preserves the worker and active tasks; the worker disposes idle session runtimes
+      and exits when empty. Web reconnect uses authoritative worker snapshots and bounded event replay. Full stop is
+      allowed to terminate the worker and active work.
+    rationale: >-
+      The current in-process registry is lost on service restart, and missing registry state is incorrectly reported as
+      completed. A client cache cannot recover live execution.
+    alternatives_rejected:
+      - Client-side conversation/state cache
+      - Normal child worker owned by Next.js
+      - Treating missing runtime as completed
+    scope: architecture
+    id: DEC-001
+    status: accepted
+    recorded_at: '2026-09-13T13:27:30.605Z'
+    version: 1
+    feature: SESSION-RUNTIME-RESILIENCE

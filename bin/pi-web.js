@@ -42,6 +42,8 @@ const { command, sourceDir, port, hostname, openBrowser } = launchOptions;
 
 const pkgDir = path.join(__dirname, "..");
 const nextDir = path.join(pkgDir, ".next");
+const missingBuildMessage =
+  "Build artifacts not found. From a source checkout, run `npm run dev`; otherwise reinstall with `npm install -g @agegr/pi-web@latest`.";
 
 if (command === "update") {
   try {
@@ -81,7 +83,7 @@ if (command !== "foreground") {
     const { assertSupportedPlatform, runServiceCommand } = require("./mac-service");
     assertSupportedPlatform();
     if (["start", "restart", "reload"].includes(command) && !fs.existsSync(nextDir)) {
-      throw new Error("Build artifacts not found. Install the published Pi Web package before starting its service.");
+      throw new Error(missingBuildMessage);
     }
     const result = runServiceCommand(command, {
       scriptPath: fs.realpathSync(__filename),
@@ -121,7 +123,7 @@ const loopbackHostnames = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
 const passwordEnabled = Boolean(process.env.PI_WEB_PASSWORD);
 
 if (!fs.existsSync(nextDir)) {
-  console.error("Build artifacts not found. Please report this issue.");
+  console.error(missingBuildMessage);
   process.exit(1);
 }
 

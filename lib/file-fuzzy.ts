@@ -168,6 +168,14 @@ export interface AtInsertion {
   cursorOffset: number;
 }
 
+function quoteAtPath(path: string): string {
+  return path.replaceAll('"', '\\"');
+}
+
+function atPathNeedsQuotes(path: string): boolean {
+  return /[\s"]/.test(path);
+}
+
 /**
  * Replacement for the @token when a suggestion is confirmed. Mirrors the
  * TUI's buildCompletionValue/applyCompletion:
@@ -180,12 +188,12 @@ export interface AtInsertion {
  */
 export function buildAtInsertText(entryPath: string, isDir: boolean, forceQuotes = false): AtInsertion {
   const p = isDir ? `${entryPath}/` : entryPath;
-  const needsQuotes = forceQuotes || p.includes(" ");
+  const needsQuotes = forceQuotes || atPathNeedsQuotes(p);
   if (isDir) {
-    const text = needsQuotes ? `@"${p}"` : `@${p}`;
+    const text = needsQuotes ? `@"${quoteAtPath(p)}"` : `@${p}`;
     return { text, cursorOffset: needsQuotes ? text.length - 1 : text.length };
   }
-  const text = needsQuotes ? `@"${p}" ` : `@${p} `;
+  const text = needsQuotes ? `@"${quoteAtPath(p)}" ` : `@${p} `;
   return { text, cursorOffset: text.length };
 }
 
@@ -196,14 +204,14 @@ export function buildAtInsertText(entryPath: string, isDir: boolean, forceQuotes
  */
 export function buildAtMentionText(entryPath: string, isDir: boolean): string {
   const p = isDir ? `${entryPath}/` : entryPath;
-  return p.includes(" ") ? `@"${p}" ` : `@${p} `;
+  return atPathNeedsQuotes(p) ? `@"${quoteAtPath(p)}" ` : `@${p} `;
 }
 
 /** Closed file @mention scoped to one logical line or an inclusive line range. */
 export function buildFileLineMentionText(entryPath: string, startLine: number, endLine: number): string {
   const firstLine = Math.max(1, Math.min(startLine, endLine));
   const lastLine = Math.max(1, Math.max(startLine, endLine));
-  const pathMention = entryPath.includes(" ") ? `@"${entryPath}"` : `@${entryPath}`;
+  const pathMention = atPathNeedsQuotes(entryPath) ? `@"${quoteAtPath(entryPath)}"` : `@${entryPath}`;
   const lineSuffix = firstLine === lastLine ? `:${firstLine}` : `:${firstLine}-${lastLine}`;
   return `${pathMention}${lineSuffix} `;
 }

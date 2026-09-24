@@ -39,6 +39,12 @@ import {
   SUBAGENT_CONTROL_TOOL_NAMES,
 } from "./subagents";
 import { createSubagentController } from "./subagent-runtime";
+import {
+  createProductMessagingTools,
+  ProductDeliberationBroker,
+  configureProductMessageTransport,
+  type ProductMessageTransport,
+} from "./product-messaging";
 import { isBuiltInSubagentsEnabled } from "./subagent-settings";
 import { resolveShellTools } from "./powershell-settings";
 import { CHAT_ONLY_RESOURCE_LOADER_OPTIONS, contextFilesSystemPrompt } from "./chat-only";
@@ -59,8 +65,10 @@ export interface AgentEvent {
   [key: string]: unknown;
 }
 
-type EventListener = (event: AgentEvent) => void;
+type EventListener = (event: AgentEvent, sequence?: number) => void;
 type AgentRunCompleteListener = (sessionId: string) => void;
+
+const MAX_EVENT_HISTORY = 512;
 
 type PendingUiResponse = {
   resolve: (response: ExtensionUiResponse) => void;
@@ -219,6 +227,8 @@ function withExtensionTools(session: AgentSessionLike, toolNames: string[]): str
 export class AgentSessionWrapper {
   private listeners: EventListener[] = [];
   private activeToolEvents = new Map<string, AgentEvent>();
+  private eventSequence = 0;
+  private eventHistory: Array<{ sequence: number; event: AgentEvent }> = [];
   private pendingUiResponses = new Map<string, PendingUiResponse>();
   private pendingUiRequests = new Map<string, AgentEvent>();
   private activeCustomUis = new Map<string, ActiveCustomUi>();
@@ -276,6 +286,37 @@ export class AgentSessionWrapper {
 
   get isStreaming(): boolean {
     return this.inner.isStreaming;
+  }
+
+  get isPromptRunning(): boolean {
+    return this.pendingPromptCount > 0;
+  }
+
+  get isBashRunning(): boolean {
+    return this.inner.isBashRunning;
+  }
+
+  get isCompacting(): boolean {
+    return this.inner.isCompacting;
+  }
+
+  get running(): boolean {
+    return this.isRunning();
+  }
+
+  get currentEventSequence(): number {
+    return this.eventSequence;
+  }
+
+  getEventsSince(sequence: number): Array<{ sequence: number; event: AgentEvent }> {
+    return this.eventHistory.filter((record) => record.sequence > sequence);
+  }
+
+  get extensionUiState(): { statuses: Array<{ key: string; text: string }>; widgets: ExtensionWidgetItem[] } {
+    return {
+      statuses: this.getExtensionStatuses(),
+      widgets: this.getExtensionWidgets(),
+    };
   }
 
   isAlive(): boolean {
@@ -432,9 +473,14 @@ export class AgentSessionWrapper {
   }
 
   private emit(event: AgentEvent): void {
+    const sequence = ++this.eventSequence;
+    this.eventHistory.push({ sequence, event });
+    if (this.eventHistory.length > MAX_EVENT_HISTORY) {
+      this.eventHistory.splice(0, this.eventHistory.length - MAX_EVENT_HISTORY);
+    }
     for (const listener of this.listeners) {
       try {
-        listener(event);
+        listener(event, sequence);
       } catch (error) {
         console.error(
           `[pi-web] failed to deliver ${event.type} event:`,
@@ -1682,6 +1728,25 @@ function registerRpcWrapper(wrapper: AgentSessionWrapper): void {
   if (!wrapper.isChatOnly()) wrapper.beginExtensionBinding();
 }
 
+configureProductMessageTransport({
+  deliver: async ({ sessionId, message, prompt }) => {
+    let target = getRegistry().get(sessionId);
+    if (!target?.isAlive()) {
+      const targetPath = await resolveSessionPath(sessionId);
+      if (!targetPath) throw new Error(`Product recipient session not found: ${sessionId}`);
+      target = (await startRpcSession(sessionId, targetPath, undefined)).session;
+    }
+    await target.waitUntilReady();
+    if (!target.isAlive()) throw new Error(`Product recipient session is unavailable: ${sessionId}`);
+    await target.inner.sendCustomMessage({
+      customType: "pi-web:product-message",
+      content: prompt,
+      display: true,
+      details: message,
+    }, { deliverAs: "followUp", triggerTurn: true });
+  },
+} satisfies ProductMessageTransport);
+
 const SUBAGENT_CONTROLLER = createSubagentController({
   getSession: (sessionId) => getRegistry().get(sessionId),
   registerSession: (inner, options) => {
@@ -1745,6 +1810,16 @@ function trackStartingSession(cwd: string): () => void {
 
 export function getRpcSession(sessionId: string): AgentSessionWrapper | undefined {
   return getRegistry().get(sessionId);
+}
+
+export function getRpcSessionCount(): number {
+  return getRegistry().size;
+}
+
+export async function shutdownRpcSessions(): Promise<number> {
+  const sessions = Array.from(getRegistry().values());
+  await Promise.all(sessions.map((session) => session.shutdown()));
+  return sessions.length;
 }
 
 export interface SetRpcSessionToolsResult {
@@ -1987,6 +2062,40 @@ export async function startRpcSession(
   const subagentLoadsResources = Boolean(
     subagentResources?.loadExtensions || subagentResources?.loadSkills,
   );
+  const productContext = subagentResources?.product;
+  let productSession: AgentSessionLike | undefined;
+  const productBroker = productContext
+    ? new ProductDeliberationBroker({
+        cwd: sessionCwd,
+        feature: productContext.feature,
+        runId: productContext.runId,
+        transport: {
+          deliver: async ({ sessionId, message, prompt }) => {
+            let target = getRegistry().get(sessionId);
+            if (!target?.isAlive()) {
+              const targetPath = await resolveSessionPath(sessionId);
+              if (!targetPath) throw new Error(`Product recipient session not found: ${sessionId}`);
+              target = (await startRpcSession(sessionId, targetPath, undefined)).session;
+            }
+            await target.waitUntilReady();
+            if (!target.isAlive()) throw new Error(`Product recipient session is unavailable: ${sessionId}`);
+            await target.inner.sendCustomMessage({
+              customType: "pi-web:product-message",
+              content: prompt,
+              display: true,
+              details: message,
+            }, { deliverAs: "followUp", triggerTurn: true });
+          },
+        } satisfies ProductMessageTransport,
+      })
+    : undefined;
+  const productTools = productBroker && productContext
+    ? createProductMessagingTools({
+        broker: productBroker,
+        role: productContext.role,
+        getSessionId: () => productSession?.sessionId ?? "starting",
+      })
+    : [];
   const chatOnly = selectedToolNames?.length === 0 && !subagentLoadsResources;
   const finishStartingSession = trackStartingSession(sessionCwd);
   const starting = (async () => {
@@ -2104,7 +2213,16 @@ export async function startRpcSession(
       ...(scope.scopedModels.length > 0 ? { scopedModels: [...scope.scopedModels] } : {}),
       ...(toolsOption !== undefined ? { tools: toolsOption } : {}),
       ...(subagentResources ? { excludeTools: [...SUBAGENT_CONTROL_TOOL_NAMES] } : {}),
+      ...(productTools.length > 0 ? { customTools: productTools } : {}),
     });
+    productSession = inner;
+    if (productBroker && productContext) {
+      await productBroker.registerParticipant({
+        role: productContext.role,
+        sessionId: inner.sessionId,
+        status: "registered",
+      });
+    }
 
     const persistedPreferences = await persistExplicitStartupPreferences(
       services.settingsManager,

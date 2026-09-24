@@ -1,0 +1,28 @@
+topic: Character styling exploration
+status: provisional
+messages:
+  - >-
+    User wants to redesign the office character styling using ralv.ai as reference and may explore fantasy user
+    interface (FUI) principles associated with Nicolas Lopardo.
+  - >-
+    Three visual directions will be previewed as read-only local mockups in pi-web before any production renderer
+    change.
+  - No production visual direction is accepted yet.
+options:
+  - id: spatial
+    label: Ralv-inspired spatial deck
+    tradeoff: More legible agent status and spatial relationships; less pixel-office identity.
+  - id: fui
+    label: Fantasy UI / FUI
+    tradeoff: Stronger authored atmosphere and telemetry; higher risk of visual density and reduced scanability.
+  - id: hybrid
+    label: Pixel office with authored character styling
+    tradeoff: >-
+      Preserves current office affordance while improving character personality; smaller departure from the current
+      renderer.
+recommendation: Prototype all three as read-only local mockups in the existing Agents workspace before changing production visuals.
+scope: Mockups only; no accepted production visual direction yet.
+id: DISC-001
+recorded_at: '2026-09-12T16:12:41.175Z'
+version: 1
+feature: PI-PIXEL-AGENTS

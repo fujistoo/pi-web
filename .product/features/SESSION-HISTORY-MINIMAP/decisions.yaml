@@ -1,0 +1,18 @@
+version: 1
+feature: SESSION-HISTORY-MINIMAP
+items:
+  - title: Separate minimap index from paged message payloads
+    evidence:
+      - The minimap was derived from the currently loaded message page, capped to the newest 50 entries.
+      - Session JSONL and the active branch still retain pre-compaction user entries.
+    decision: >-
+      Return a lightweight active-branch user-input index with session context. Continue paging full messages and tool
+      payloads. Load intervening pages only when the user selects an unloaded minimap input.
+    rationale: >-
+      This restores complete navigation without eagerly allocating or rendering full historical tool and assistant
+      content.
+    id: DEC-001
+    status: accepted
+    recorded_at: '2026-09-12T13:04:46.059Z'
+    version: 1
+    feature: SESSION-HISTORY-MINIMAP

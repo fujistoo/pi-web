@@ -1,0 +1,4 @@
+version: 1
+feature: SESSION-HISTORY-MINIMAP
+reuse_map: {}
+annotations: []

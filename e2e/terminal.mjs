@@ -84,7 +84,7 @@ try {
     };
     const showPanel = () => page.getByRole("button", { name: "Show file panel", exact: true }).click();
     const hidePanel = async () => {
-      const button = page.locator("#file-panel").getByRole("button", { name: "Hide file panel", exact: true, includeHidden: true });
+      const button = page.locator("#resource-panel").getByRole("button", { name: "Hide resource panel", exact: true, includeHidden: true });
       if (await button.getAttribute("aria-expanded") === "true") await button.click();
     };
     try {

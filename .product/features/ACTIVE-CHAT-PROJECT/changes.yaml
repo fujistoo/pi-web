@@ -1,0 +1,57 @@
+version: 1
+feature: ACTIVE-CHAT-PROJECT
+items:
+  - title: Implement virtual Active chats project
+    summary: >-
+      Added a built-in Active chats sidebar view backed by the session catalog. It groups recent/running families across
+      workspaces, excludes archived roots, offers a local activity-window selector defaulting to 24 hours, and persists
+      the selector in localStorage.
+    artifacts:
+      - components/SessionSidebar.tsx
+      - lib/chat-project-state.ts
+      - components/SessionSidebar.test.mjs
+      - lib/chat-project-state.test.mjs
+      - lib/i18n/messages/en.ts
+      - lib/i18n/messages/zh-CN.ts
+      - lib/i18n/messages/zh-TW.ts
+    requirements:
+      - R1
+      - R2
+      - R3
+      - R4
+      - R5
+    status: implemented
+    id: CHG-001
+    recorded_at: '2026-09-12T15:35:10.015Z'
+    version: 1
+    feature: ACTIVE-CHAT-PROJECT
+  - title: Persist Active chats view selection
+    summary: >-
+      Persisted whether the built-in Active chats view was selected so a browser refresh retains the filtered
+      cross-workspace view, alongside the activity-window preference.
+    artifacts:
+      - components/SessionSidebar.tsx
+      - lib/chat-project-state.ts
+      - lib/chat-project-state.test.mjs
+    requirements:
+      - R4
+    scenarios:
+      - S4
+    status: implemented
+    id: CHG-002
+    recorded_at: '2026-09-12T15:37:43.289Z'
+    version: 1
+    feature: ACTIVE-CHAT-PROJECT
+  - title: Align Active chats project controls
+    summary: >-
+      Matched the Active chats status dot to the existing project-row icon size and centered the activity-window clock
+      control with the same row alignment behavior.
+    artifacts:
+      - components/SessionSidebar.tsx
+    requirements:
+      - R1
+    status: implemented
+    id: CHG-003
+    recorded_at: '2026-09-12T15:50:12.121Z'
+    version: 1
+    feature: ACTIVE-CHAT-PROJECT

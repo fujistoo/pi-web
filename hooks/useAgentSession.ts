@@ -11,6 +11,7 @@ import type {
   SessionTreeNode,
   ToolResultMessage,
   UserMessage,
+  SessionHistoryInput,
 } from "@/lib/types";
 import { isBlockingExtensionUiRequest } from "@/lib/browser-notifications";
 import { normalizeToolCalls } from "@/lib/normalize";
@@ -24,6 +25,7 @@ import { clearDraft, rekeyDraft, restoreDraftSubmission } from "@/lib/draft-stor
 import { getPreferredToolPreset, setPreferredToolPreset } from "@/lib/tool-preset-preference";
 import { CONFIGURED_TOOL_PRESET, getPresetFromToolNames, getToolNamesForPreset, type ToolEntry, type ToolPreset } from "@/lib/tool-presets";
 import type { SessionStatsInfo } from "@/lib/pi-types";
+import type { SessionTiming } from "@/lib/session-timing";
 import { mergeSessionStats, type SessionFileStats } from "@/lib/session-stats";
 import { userMessageKey } from "@/lib/prompt-recovery";
 import { AgentEventConnection } from "@/lib/agent-event-connection";
@@ -46,6 +48,7 @@ export interface SessionData {
   sessionId: string;
   filePath: string;
   totalActiveMs: number;
+  timing?: SessionTiming;
   tree: SessionTreeNode[];
   leafId: string | null;
   toolNames?: string[];
@@ -60,6 +63,7 @@ export interface SessionData {
     hasMore: boolean;
     thinkingLevel: string;
     model: { provider: string; modelId: string } | null;
+    historyInputs: SessionHistoryInput[];
   };
   /** Cumulative usage over ALL session-file entries (incl. compacted history). */
   stats?: SessionFileStats;
@@ -130,6 +134,7 @@ export type AgentPhase =
   | { kind: "waiting_model" }
   | { kind: "running_command" }
   | { kind: "running_tools"; tools: { id: string; name: string; progress?: string }[] }
+  | { kind: "reconnecting" }
   | null;
 
 export interface CompactResultInfo {
@@ -269,7 +274,7 @@ export interface ChatInputHandle {
   prependText: (text: string) => void;
   addImages: (files: File[]) => void;
   rekeyDraft: (previousKey: string, nextKey: string) => void;
-  restoreSubmission: (text: string, images?: Array<{ data: string; mimeType: string }>, targetDraftKey?: string) => void;
+  restoreSubmission: (text: string, images?: Array<{ data: string; mimeType: string }>, targetDraftKey?: string, files?: string[]) => void;
 }
 
 export interface AttachedImage {
@@ -306,11 +311,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const [data, setData] = useState<SessionData | null>(null);
   const [loading, setLoading] = useState(!isNew);
+  const [activeToolResults, setActiveToolResults] = useState<Map<string, ToolResultMessage>>(new Map());
+  const [entryIds, setEntryIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [activeLeafId, setActiveLeafId] = useState<string | null>(null);
   const [messages, setMessages] = useState<AgentMessage[]>([]);
-  const [activeToolResults, setActiveToolResults] = useState<Map<string, ToolResultMessage>>(new Map());
-  const [entryIds, setEntryIds] = useState<string[]>([]);
   const [historyCursor, setHistoryCursor] = useState<string | null>(null);
   const [hasEarlierMessages, setHasEarlierMessages] = useState(false);
   const [streamState, dispatch] = useReducer(streamReducer, INITIAL_STREAMING_STATE);
@@ -349,6 +354,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [slashCommandsLoading, setSlashCommandsLoading] = useState(false);
   const [noticeState, dispatchNotice] = useReducer(noticeReducer, { visible: [], pending: [] });
   const [sessionStatsOverride, setSessionStatsOverride] = useState<SessionStatsInfo | null>(null);
+  const [activeTaskStartedAt, setActiveTaskStartedAt] = useState<number | null>(null);
   const [extensionDialog, setExtensionDialog] = useState<ExtensionUiDialogRequest | null>(null);
   const [extensionCustomUi, setExtensionCustomUi] = useState<ExtensionUiCustomRequest | null>(null);
   const [extensionStatuses, setExtensionStatuses] = useState<ExtensionStatusItem[]>([]);
@@ -378,7 +384,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const isNearBottomRef = useRef(true);
   const previousScrollTopRef = useRef(0);
   const liveFollowFrameRef = useRef<number | null>(null);
-  const executeBashRef = useRef<(command: string, excludeFromContext: boolean) => Promise<void> | undefined>(undefined);
+  const executeBashRef = useRef<(command: string, excludeFromContext: boolean, files?: string[]) => Promise<void> | undefined>(undefined);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const ensuringNewSessionRef = useRef<Promise<string | null> | null>(null);
   const newSessionPromotedRef = useRef(false);
@@ -412,7 +418,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   if (!eventConnectionRef.current) {
     eventConnectionRef.current = new AgentEventConnection({
-      createSource: (sid) => new EventSource(`/api/agent/${encodeURIComponent(sid)}/events`),
+      createSource: (sid, afterSequence) => {
+        const query = afterSequence ? `?after=${afterSequence}` : "";
+        return new EventSource(`/api/agent/${encodeURIComponent(sid)}/events${query}`);
+      },
       onEvent: (event) => handleAgentEventRef.current?.(event as AgentEvent),
       shouldMaintain: (sid) => (
         sessionHookMountedRef.current
@@ -420,13 +429,23 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         && (
           agentRunningRef.current
           || eventStreamGraceActiveRef.current
-          || sessionPropIdRef.current === sid
         )
       ),
       readinessTimeoutMs: EVENT_STREAM_READY_TIMEOUT_MS,
       reconnectDelayMs: EVENT_STREAM_RECONNECT_DELAY_MS,
       onUnexpectedError: (error) => {
         console.error("Failed to maintain the agent event stream:", error);
+      },
+      onLifecycleChange: (lifecycle) => {
+        if (lifecycle === "connecting" || lifecycle === "disconnected") {
+          if (agentRunningRef.current) setAgentPhase({ kind: "reconnecting" });
+          return;
+        }
+        if (agentRunningRef.current) {
+          setAgentPhase((phase) => phase?.kind === "reconnecting"
+            ? (sdkAgentActiveRef.current ? { kind: "waiting_model" } : { kind: "running_command" })
+            : phase);
+        }
       },
     });
   }
@@ -491,6 +510,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     text: string,
     images: AttachedImage[] | undefined,
     targetDraftKey: string | undefined,
+    files?: string[],
   ) => {
     const draftImages = images?.map(({ data, mimeType }) => ({ data, mimeType }));
     const destinationDraftKey = resolveComposerDraftKey(targetDraftKey);
@@ -501,9 +521,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     ) return;
     const input = opts.chatInputRef?.current;
     if (input) {
-      input.restoreSubmission(text, draftImages, destinationDraftKey);
+      input.restoreSubmission(text, draftImages, destinationDraftKey, files);
     } else if (destinationDraftKey) {
-      restoreDraftSubmission(destinationDraftKey, text, draftImages);
+      restoreDraftSubmission(destinationDraftKey, text, draftImages, files);
     }
   }, [newSessionDraftKey, opts.chatInputRef, resolveComposerDraftKey]);
 
@@ -512,22 +532,25 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       return {
         ...sessionStatsOverride,
         totalActiveMs: data?.totalActiveMs,
+        timing: data?.timing,
+        ...(activeTaskStartedAt !== null ? { activeTaskStartedAt } : {}),
         ...(contextUsage ? { contextUsage } : {}),
       };
     }
     const fileStats = data?.stats;
     const stats = mergeSessionStats(fileStats, data?.context.messages ?? [], messages);
-    if (stats.tokens.total === 0 && messages.length === 0 && !fileStats) return null;
+    if (stats.tokens.total === 0 && messages.length === 0 && !fileStats && activeTaskStartedAt === null) return null;
     return {
       sessionFile: data?.filePath || undefined,
       sessionId: sessionIdRef.current ?? session?.id ?? "",
       sessionName: session?.name,
       ...stats,
       totalActiveMs: data?.totalActiveMs,
+      timing: data?.timing,
+      ...(activeTaskStartedAt !== null ? { activeTaskStartedAt } : {}),
       ...(contextUsage ? { contextUsage } : {}),
     } satisfies SessionStatsInfo;
-  }, [messages, sessionStatsOverride, contextUsage, data?.context.messages, data?.filePath, data?.totalActiveMs, data?.stats, session?.id, session?.name]);
-
+  }, [messages, sessionStatsOverride, activeTaskStartedAt, contextUsage, data?.context.messages, data?.filePath, data?.totalActiveMs, data?.timing, data?.stats, session?.id, session?.name]);
   const loadSession = useCallback(async (sid: string, showLoading = false, includeState = false, options?: { force?: boolean }) => {
     // Single-flight: concurrent reads for the same session (mount + SSE settle +
     // reconcile) share one request unless the caller forces a fresh read.
@@ -598,6 +621,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           stats: d.stats,
           totalActiveMs: d.totalActiveMs,
           loadedEntryIds: entryIdsRef.current,
+          historyInputs: d.context.historyInputs,
         });
       } else {
         setMessages(persistedMessages);
@@ -627,6 +651,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           stats: d.stats,
           totalActiveMs: d.totalActiveMs,
           loadedEntryIds: d.context.entryIds ?? [],
+          historyInputs: d.context.historyInputs,
         });
       }
       if (d.wrapperRebuilt) {
@@ -677,6 +702,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     });
     return await flight;
   }, [setToolPresetState, syncLiveModel]);
+
 
   const loadContext = useCallback(async (sid: string, leafId: string | null, before?: string | null, options?: { tail?: number; signal?: AbortSignal }) => {
     try {
@@ -867,9 +893,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     eventConnectionRef.current?.close();
   }, []);
 
-  const ensureEventsConnected = useCallback((sid: string) => (
-    eventConnectionRef.current!.ensureConnected(sid)
-  ), []);
+  const ensureEventsConnected = useCallback(async (sid: string) => {
+    // A prompt is the explicit point that may start a stopped worker. Passive
+    // reconnects use the existing worker only, so a crashed worker cannot turn
+    // an active task into a false completion by reopening an idle JSONL session.
+    await sendAgentCommand(sid, { type: "get_state" });
+    await eventConnectionRef.current!.ensureConnected(sid);
+  }, []);
 
   const maintainEventsConnected = useCallback((sid: string) => {
     eventConnectionRef.current!.maintain(sid);
@@ -894,7 +924,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   useEffect(() => {
     const sid = session?.id;
-    if (!sid) return;
+    if (!sid || !agentRunning) return;
     let disposed = false;
     let renewing = false;
 
@@ -934,7 +964,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [closeEvents, maintainEventsConnected, session?.id]);
+  }, [agentRunning, closeEvents, maintainEventsConnected, session?.id]);
 
   const respondToExtensionUi = useCallback(async (
     request: ExtensionUiDialogRequest,
@@ -1033,6 +1063,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const settleUiStage = useCallback(() => {
     const wasRunning = agentRunningRef.current;
     agentRunningRef.current = false;
+    setActiveTaskStartedAt(null);
     setAgentRunning(false);
     setAgentPhase(null);
     setRetryInfo(null);
@@ -1049,10 +1080,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [onAgentEnd]);
 
   const scheduleEventStreamClose = useCallback((sid: string) => {
-    if (sessionPropIdRef.current === sid) {
-      cancelEventStreamGrace();
-      return;
-    }
     cancelEventStreamGrace();
     eventStreamGraceActiveRef.current = true;
     const generation = eventStreamGraceGenerationRef.current;
@@ -1197,7 +1224,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const runId = promptRunIdRef.current;
     try {
       const res = await fetch(`/api/agent/${encodeURIComponent(sid)}`);
-      if (!res.ok) return;
+      if (!res.ok) {
+        if (agentRunningRef.current && sessionIdRef.current === sid) setAgentPhase({ kind: "reconnecting" });
+        return;
+      }
       const data = await res.json() as { running?: boolean; state?: AgentStateResponse };
       // A slow response can straddle a run boundary (previous run finished
       // and the user already started the next one while this request was in
@@ -1214,6 +1244,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const busy = data.running && state
         && (state.isStreaming || state.isPromptRunning || state.isCompacting);
       if (busy) {
+        setActiveTaskStartedAt((startedAt) => startedAt ?? Date.now());
+        setAgentPhase((phase) => phase?.kind === "reconnecting"
+          ? (state.isStreaming ? { kind: "waiting_model" } : { kind: "running_command" })
+          : phase);
         sdkAgentActiveRef.current = Boolean(state.isStreaming);
         rpcPromptPendingRef.current = Boolean(state.isPromptRunning);
         return;
@@ -1228,6 +1262,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       await finishPromptWithoutStream(sid, runId);
     } catch {
       // Network still down — the next poll / visibility / online tick retries.
+      if (agentRunningRef.current && sessionIdRef.current === sid) {
+        setAgentPhase({ kind: "reconnecting" });
+      }
     }
   }, [finishPromptWithoutStream, syncLiveModel]);
 
@@ -1262,17 +1299,33 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const handleAgentEvent = useCallback((event: AgentEvent) => {
     switch (event.type) {
       case "connected": {
-        dispatch({ type: "end" });
-        if (event.isStreaming === true) {
+        const running = event.running === true
+          || event.isStreaming === true
+          || event.isPromptRunning === true
+          || event.isBashRunning === true
+          || event.isCompacting === true;
+        if (running) {
+          setActiveTaskStartedAt((startedAt) => startedAt ?? Date.now());
           cancelEventStreamGrace();
-          sdkAgentActiveRef.current = true;
+          sdkAgentActiveRef.current = event.isStreaming === true;
+          rpcPromptPendingRef.current = event.isPromptRunning === true;
           agentRunningRef.current = true;
           setAgentRunning(true);
-          setAgentPhase({ kind: "waiting_model" });
+          setAgentPhase(event.isBashRunning === true
+            ? { kind: "running_command" }
+            : { kind: "waiting_model" });
+          dispatch({ type: "start" });
+        } else if (event.running === false) {
+          const sid = sessionIdRef.current;
+          if (agentRunningRef.current && sid) void reconcileAgentState(sid);
+          else dispatch({ type: "end" });
         }
+        if (Array.isArray(event.extensionStatuses)) setExtensionStatuses(event.extensionStatuses as ExtensionStatusItem[]);
+        if (Array.isArray(event.extensionWidgets)) setExtensionWidgets(event.extensionWidgets as ExtensionWidgetItem[]);
         break;
       }
       case "agent_start":
+        setActiveTaskStartedAt((startedAt) => startedAt ?? Date.now());
         cancelEventStreamGrace();
         sdkAgentActiveRef.current = true;
         agentRunningRef.current = true;
@@ -1517,14 +1570,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setExtensionDialog((current) => current?.id === event.id ? null : current);
         break;
     }
-  }, [addNotice, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, scheduleEventStreamClose, scrollToBottom, settleUiStage, syncLiveModel]);
+  }, [addNotice, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, reconcileAgentState, scheduleEventStreamClose, scrollToBottom, settleUiStage, syncLiveModel]);
   handleAgentEventRef.current = handleAgentEvent;
 
-  const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
+  const handleSend = useCallback(async (message: string, images?: AttachedImage[], files?: string[]) => {
     const trimmedMessage = message.trim();
     if (!trimmedMessage && !images?.length) return;
     if (agentRunningRef.current || bashRunningRef.current) {
-      restoreSubmission(message, images, composerDraftKey);
+      restoreSubmission(message, images, composerDraftKey, files);
       return;
     }
     const isSlashCommandPrompt = !images?.length && trimmedMessage.startsWith("/");
@@ -1534,10 +1587,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const isExcluded = trimmedMessage.startsWith("!!");
       const bashCmd = (isExcluded ? trimmedMessage.slice(2) : trimmedMessage.slice(1)).trim();
       if (!bashCmd) {
-        restoreSubmission(message, images, composerDraftKey);
+        restoreSubmission(message, images, composerDraftKey, files);
         return;
       }
-      await executeBashRef.current?.(bashCmd, isExcluded);
+      await executeBashRef.current?.(bashCmd, isExcluded, files);
       return;
     }
 
@@ -1554,6 +1607,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       timestamp: Date.now(),
     };
     setMessages((prev) => [...prev, userMsg]);
+    setActiveTaskStartedAt(userMsg.timestamp ?? Date.now());
     optimisticUserMessageKeyRef.current = userMessageKey(userMsg);
     promptRunIdRef.current = promptRunId;
     agentRunningRef.current = true;
@@ -1622,7 +1676,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           : [...prev.slice(0, optimisticIndex), ...prev.slice(optimisticIndex + 1)];
       });
       addNotice({ type: "error", message: e instanceof Error ? e.message : String(e) });
-      restoreSubmission(message, images, composerDraftKey);
+      restoreSubmission(message, images, composerDraftKey, files);
       optimisticUserMessageKeyRef.current = null;
       // Rejection only describes this submission. Another tab or an event we
       // missed may still have a real run active for the same session, so keep
@@ -1632,6 +1686,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         return;
       }
       agentRunningRef.current = false;
+      setActiveTaskStartedAt(null);
       closeEvents();
       setAgentRunning(false);
       setAgentPhase(null);
@@ -1639,15 +1694,17 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, composerDraftKey, reconcileAgentState, restoreSubmission]);
 
-  const executeBash = useCallback(async (command: string, excludeFromContext: boolean) => {
+  const executeBash = useCallback(async (command: string, excludeFromContext: boolean, files?: string[]) => {
     if (agentRunningRef.current || bashRunningRef.current) return;
     const inputText = `${excludeFromContext ? "!!" : "!"}${command}`;
     bashRunningRef.current = true;
+    setActiveTaskStartedAt(Date.now());
     setPendingBash({ command, excludeFromContext });
     setBashRunning(true);
     try {
       const sid = sessionIdRef.current ?? session?.id ?? await ensureNewSession();
       if (!sid) throw new Error("Unable to create a session for the shell command");
+      await ensureEventsConnected(sid);
       await sendAgentCommand(sid, {
         type: "bash",
         command,
@@ -1658,13 +1715,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } catch (e) {
       console.error("Failed to execute shell command:", e);
       addNotice({ type: "error", message: e instanceof Error ? e.message : String(e) });
-      restoreSubmission(inputText, undefined, composerDraftKey);
+      restoreSubmission(inputText, undefined, composerDraftKey, files);
     } finally {
       bashRunningRef.current = false;
+      setActiveTaskStartedAt(null);
       setPendingBash(null);
       setBashRunning(false);
     }
-  }, [addNotice, composerDraftKey, ensureNewSession, loadSession, promoteNewSession, restoreSubmission, session]);
+  }, [addNotice, composerDraftKey, ensureEventsConnected, ensureNewSession, loadSession, promoteNewSession, restoreSubmission, session]);
   executeBashRef.current = executeBash;
 
   const handleAbort = useCallback(async () => {
@@ -1790,17 +1848,19 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const handleCompact = useCallback(async () => {
     const sid = sessionIdRef.current;
     if (!sid || isCompacting) return;
+    setActiveTaskStartedAt(Date.now());
     setIsCompacting(true);
     setCompactError(null);
     setCompactResult(null);
     try {
       const result = await sendAgentCommand<CompactCommandResult>(sid, { type: "compact" });
       setCompactResult(readCompactResult(result, "manual"));
-      await loadSession(sid, true);
+      await loadSession(sid);
     } catch (e) {
       setCompactError(e instanceof Error ? e.message : String(e));
       setCompactResult(null);
     } finally {
+      setActiveTaskStartedAt(null);
       setIsCompacting(false);
     }
   }, [isCompacting, loadSession]);
@@ -1882,6 +1942,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       switch (commandName) {
         case "compact": {
           if (!sid || isCompacting) return complete({ handled: true, error: "No active session to compact" });
+          setActiveTaskStartedAt(Date.now());
           setIsCompacting(true);
           setCompactError(null);
           setCompactResult(null);
@@ -1890,7 +1951,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             ...(args ? { customInstructions: args } : {}),
           });
           setCompactResult(readCompactResult(result, "manual"));
-          if (await loadSession(sid, true)) promoteNewSession();
+          if (await loadSession(sid)) promoteNewSession();
           return complete({ handled: true, message: "Compacted context" });
         }
 
@@ -1975,7 +2036,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } catch (e) {
       return complete({ handled: true, error: e instanceof Error ? e.message : String(e) });
     } finally {
-      if (commandName === "compact") setIsCompacting(false);
+      if (commandName === "compact") {
+        setActiveTaskStartedAt(null);
+        setIsCompacting(false);
+      }
     }
   }, [activeLeafId, addNotice, ensureNewSession, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, promoteNewSession, onSessionForked, onSessionStatsPanelOpen]);
 
@@ -1986,9 +2050,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     message: string,
     behavior: "steer" | "followUp",
     images?: AttachedImage[],
+    files?: string[],
   ) => {
     const sid = sessionIdRef.current;
-    const restore = () => restoreSubmission(message, images, composerDraftKey);
+    const restore = () => restoreSubmission(message, images, composerDraftKey, files);
     if (!sid) {
       restore();
       addNotice({ type: "error", message: "No active session for the queued message" });
@@ -2015,20 +2080,21 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [addNotice, composerDraftKey, restoreSubmission]);
 
-  const handleSteer = useCallback(async (message: string, images?: AttachedImage[]) => {
-    await sendStreamingPrompt(message, "steer", images);
+  const handleSteer = useCallback(async (message: string, images?: AttachedImage[], files?: string[]) => {
+    await sendStreamingPrompt(message, "steer", images, files);
   }, [sendStreamingPrompt]);
 
   const handlePromptWithStreamingBehavior = useCallback(async (
     message: string,
     behavior: "steer" | "followUp",
     images?: AttachedImage[],
+    files?: string[],
   ) => {
-    await sendStreamingPrompt(message, behavior, images);
+    await sendStreamingPrompt(message, behavior, images, files);
   }, [sendStreamingPrompt]);
 
-  const handleFollowUp = useCallback(async (message: string, images?: AttachedImage[]) => {
-    await sendStreamingPrompt(message, "followUp", images);
+  const handleFollowUp = useCallback(async (message: string, images?: AttachedImage[], files?: string[]) => {
+    await sendStreamingPrompt(message, "followUp", images, files);
   }, [sendStreamingPrompt]);
 
   const handleAbortCompaction = useCallback(async () => {
@@ -2219,6 +2285,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             hasMore: cached.hasMore,
             thinkingLevel: cached.thinkingLevel,
             model: cached.model,
+            historyInputs: cached.historyInputs ?? [],
           },
           stats: cached.stats as SessionData["stats"],
         });

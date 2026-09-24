@@ -2316,6 +2316,27 @@ span.token.table {
   display: none;
 }
 
+@keyframes agent-title-marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(calc(-50% - 12px)); }
+}
+
+.agent-title-marquee-track {
+  display: inline-flex;
+  white-space: nowrap;
+  will-change: transform;
+}
+
+.agent-title-marquee-wrap:hover .agent-title-marquee-track {
+  animation: agent-title-marquee 7s ease-in-out infinite alternate;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-title-marquee-wrap:hover .agent-title-marquee-track {
+    animation: none;
+  }
+}
+
 /* Desktop sidebar: animate width */
 @media (min-width: 641px) {
   .sidebar-overlay-backdrop {
@@ -2346,7 +2367,7 @@ span.token.table {
   }
 }
 
-/* Wide desktop file panel: participate in the split layout. */
+/* Wide desktop resource panel: participate in the split layout. */
 @media (min-width: 960px) {
   .right-panel-container {
     overflow: hidden;
@@ -2373,7 +2394,7 @@ span.token.table {
   }
 }
 
-/* Compact desktop file panel: overlay the chat instead of collapsing it. */
+/* Compact desktop resource panel: overlay the chat instead of collapsing it. */
 @media (min-width: 641px) and (max-width: 959px) {
   .right-panel-resize-handle {
     display: none;
@@ -2530,4 +2551,38 @@ span.token.table {
   .chat-input-textarea {
     font-size: max(16px, var(--chat-content-font-size, 14px)) !important;
   }
+}
+
+.chat-input-inline-editor {
+  cursor: text;
+  overflow-wrap: anywhere;
+}
+
+.chat-input-inline-editor:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-dim);
+  pointer-events: none;
+}
+
+.chat-input-attachment-token {
+  display: inline-block;
+  margin: 0 2px;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  color: var(--text);
+  font-size: 0.86em;
+  line-height: 1.35;
+  vertical-align: 1px;
+  user-select: all;
+}
+
+.chat-input-attachment-token[data-file-path] {
+  cursor: pointer;
+}
+
+.chat-input-attachment-token[data-file-path]:hover {
+  border-color: var(--accent);
+  background: var(--bg-hover);
 }

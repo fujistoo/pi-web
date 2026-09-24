@@ -11,7 +11,7 @@
 //   active leaf, pagination cursor, summary tree, and display stats. Never
 //   streaming state, queued messages, run state, or SSE objects.
 
-import type { AgentMessage } from "./types";
+import type { AgentMessage, SessionHistoryInput } from "./types";
 
 export interface SessionViewSnapshot {
 	sessionId: string;
@@ -31,6 +31,8 @@ export interface SessionViewSnapshot {
 	totalActiveMs?: number;
 	/** Ids of history pages the user already paged in beyond the first window. */
 	loadedEntryIds: string[];
+	/** Compact-history entries the sidebar minimap navigates by. */
+	historyInputs?: SessionHistoryInput[];
 	savedAt: number;
 }
 

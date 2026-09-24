@@ -1,0 +1,21 @@
+feature: ACTIVE-CHAT-PROJECT
+lifecycle:
+  phase: design_iteration
+  iteration: 2
+sources: {}
+requirements_baseline: 1
+open_clarifications: []
+latest_decision: DEC-001
+specialist_status:
+  prd: complete
+  archaeology: pending
+  rbac: complete
+  ux: complete
+  qa: pending
+readiness:
+  feedback_processed: false
+  material_deltas_annotated: false
+  prd_reconciled: false
+  figma_reconciled: false
+  contradictions_resolved: false
+updated_at: '2026-09-12T15:26:09.758Z'

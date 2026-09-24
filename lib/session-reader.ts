@@ -3,8 +3,8 @@ import {
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 import { closeSync, fstatSync, openSync, readSync, statSync } from "fs";
-import { isAbsolute, join, normalize as normalizePath, relative, resolve as resolvePath, sep } from "path";
-import type { AgentMessage, ImageContent, SessionEntry, SessionHeader, SessionInfo, SessionContext } from "./types";
+import { basename, dirname, isAbsolute, join, normalize as normalizePath, relative, resolve as resolvePath, sep } from "path";
+import type { AgentMessage, ImageContent, SessionEntry, SessionHeader, SessionInfo, SessionContext, TextContent } from "./types";
 import { normalizeToolCalls } from "./normalize";
 import { getThinkingPreview } from "./message-display";
 import { projectIdentityKey } from "./project-identity";
@@ -136,6 +136,19 @@ export function readLatestSessionEntryId(filePath: string | undefined): string |
   return undefined;
 }
 
+/**
+ * pi-subagents stores external runs under `<parent-dir>/<child>/run-0/session.jsonl`.
+ * Their headers lack pi-web's custom metadata, but the directory still gives us a
+ * parent link. Requiring this exact layout keeps ordinary nested/forked sessions
+ * from being reclassified.
+ */
+export function inferFleetParentSessionId(filePath: string): string | undefined {
+  const parts = filePath.split(sep);
+  if (basename(filePath) !== "session.jsonl" || parts.at(-2) !== "run-0") return undefined;
+  const parentDirectory = dirname(dirname(dirname(filePath)));
+  return basename(parentDirectory).match(/_([0-9a-z-]+)$/i)?.[1];
+}
+
 function readSessionRelationEntries(filePath: string): SessionEntry[] {
   const prefixEntries = parseSessionEntries(
     readBoundedLines(filePath, SESSION_RELATION_MAX_BYTES, SESSION_RELATION_MAX_LINES).slice(1),
@@ -184,14 +197,33 @@ export function mergeSessionLists(
 
 type ScannedSubagent = NonNullable<ReturnType<typeof readSubagentRun>>;
 
+/** The subset of a subagent run the sidebar needs, including synthesized fleet
+ *  runs whose full pi-subagents metadata is not available on disk. */
+type ScannedRelationInfo = Pick<ScannedSubagent, "parentSessionId" | "profile" | "description" | "status">;
+
 function resolveScannedSessionRelation(
   scanned: ScannedSessionInfo,
   pathToId: Map<string, string>,
-): { originSessionId?: string; subagent: ScannedSubagent | null } {
+): { originSessionId?: string; subagent: ScannedRelationInfo | null } {
+  // An external pi-subagents run has no parentSessionPath in its header, so the
+  // run directory is the only link back to the session that spawned it.
+  const fleetParentSessionId = inferFleetParentSessionId(scanned.path);
   const originSessionId = scanned.parentSessionPath
     ? pathToId.get(sessionPathKey(scanned.parentSessionPath))
-    : undefined;
-  if (!scanned.parentSessionPath) return { originSessionId, subagent: null };
+    : fleetParentSessionId;
+  if (!scanned.parentSessionPath) {
+    return {
+      originSessionId,
+      subagent: fleetParentSessionId && originSessionId
+        ? {
+            parentSessionId: originSessionId,
+            profile: "fleet",
+            description: scanned.name || scanned.firstMessage,
+            status: "completed" as const,
+          }
+        : null,
+    };
+  }
 
   try {
     const subagent = readSubagentRun(readSessionRelationEntries(scanned.path), scanned.id, scanned.path);
@@ -638,6 +670,19 @@ export interface BuildSessionContextOptions {
   sessionId?: string;
 }
 
+function isUiHistoryEntry(entry: SessionEntry): boolean {
+  switch (entry.type) {
+    case "message":
+    case "compaction":
+    case "custom_message":
+      return true;
+    case "branch_summary":
+      return Boolean(entry.summary);
+    default:
+      return false;
+  }
+}
+
 export function buildSessionContext(
   entries: SessionEntry[],
   leafId?: string | null,
@@ -646,11 +691,10 @@ export function buildSessionContext(
   const { tail, excludeLeaf } = options;
   // History pages retain the original branch order, including compacted messages.
   // SDK context filtering can drop a page's messages when firstKeptEntryId is outside it.
+  const activeBranch = leafId === null ? [] : sliceActiveBranch(entries, leafId ?? null, entries.length);
   const sliced = leafId === null ? [] : sliceActiveBranch(
     entries, leafId ?? null, tail && tail > 0 ? tail : entries.length, excludeLeaf,
   );
-  const hasMore = Boolean(tail && tail > 0 && sliced[0]?.parentId);
-
   // Convert messages and their IDs together to keep fork/navigation targets aligned.
   const messages: AgentMessage[] = [];
   const entryIds: string[] = [];
@@ -662,11 +706,41 @@ export function buildSessionContext(
     }
   }
 
+  const historyInputs = activeBranch
+    .flatMap((entry) => {
+      if (entry.type !== "message" || entry.message.role !== "user") return [];
+      const content = entry.message.content;
+      const text = (typeof content === "string"
+        ? content
+        : content
+            .filter((block): block is TextContent => block.type === "text")
+            .map((block) => block.text)
+            .join("\n"))
+        .trim()
+        .slice(0, 1000);
+      return [{
+        entryId: entry.id,
+        text,
+        timestamp: parseEntryTimestamp(entry.timestamp),
+      }];
+    });
+  // The UI label is for chat messages, not metadata/tool entries that happen
+  // to precede the bounded raw-entry window. `activeBranch` also keeps the
+  // boundary correct for pages requested with `excludeLeaf`.
+  const firstLoadedIndex = sliced.length > 0
+    ? activeBranch.findIndex((entry) => entry.id === sliced[0].id)
+    : excludeLeaf ? Math.max(0, activeBranch.length - 1) : activeBranch.length;
+  const hasMore = Boolean(
+    tail && tail > 0 && firstLoadedIndex > 0
+      && activeBranch.slice(0, firstLoadedIndex).some(isUiHistoryEntry),
+  );
+
   return {
     messages,
     entryIds,
     oldestEntryId: sliced[0]?.id ?? null,
     hasMore,
+    historyInputs,
     ...getSessionSettings(entries, leafId),
   };
 }

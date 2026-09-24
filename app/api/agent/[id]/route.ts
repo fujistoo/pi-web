@@ -1,11 +1,17 @@
 import { NextResponse } from "next/server";
+import {
+  AgentWorkerUnavailableError,
+  getExistingAgentWorkerState,
+  hasAgentWorkerDescriptor,
+  sendAgentWorkerCommand,
+} from "@/lib/agent-worker-client";
+import { getRpcSession } from "@/lib/rpc-manager";
 import { resolveSessionPath } from "@/lib/session-reader";
-import { startRpcSession, getRpcSession, setRpcSessionTools } from "@/lib/rpc-manager";
 
-// POST /api/agent/[id] - Send a command to an existing session
+// POST /api/agent/[id] - Send a command to the agent worker.
 export async function POST(
   req: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
   let commandType: string | undefined;
@@ -21,45 +27,25 @@ export async function POST(
     ) {
       throw new Error("toolNames must be an array of strings");
     }
-    const toolNames = requestedToolNames as string[] | undefined;
 
-    // Fast path: already-running session
-    const existing = getRpcSession(id);
-    if (body.type === "set_tools") {
-      const filePath = existing?.sessionFile || await resolveSessionPath(id) || undefined;
-      if (!existing?.isAlive() && !filePath) {
-        return NextResponse.json({ error: "Session not found" }, { status: 404 });
-      }
-      const changed = await setRpcSessionTools(id, filePath, toolNames);
+    const response = await sendAgentWorkerCommand(id, body);
+    const payload = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
+    if (!response.ok) {
       return NextResponse.json({
-        success: true,
-        data: { sessionId: changed.sessionId, recreated: changed.recreated },
-      });
+        ...payload,
+        ...(body.type === "prompt" ? { code: "prompt_rejected", accepted: false } : {}),
+      }, { status: response.status });
     }
-    if (existing?.isAlive()) {
-      const result = await existing.send(body);
-      promptAccepted = body.type === "prompt";
-      return NextResponse.json({ success: true, data: result });
-    }
-
-    const filePath = await resolveSessionPath(id);
-    if (!filePath) {
-      return NextResponse.json({
-        error: "Session not found",
-        ...(body.type === "prompt"
-          ? { code: "prompt_rejected", accepted: false }
-          : {}),
-      }, { status: 404 });
-    }
-
-    const { session } = await startRpcSession(id, filePath, undefined, {
-      ...(toolNames !== undefined ? { toolNames } : {}),
-    });
-    const result = await session.send(body);
     promptAccepted = body.type === "prompt";
-
-    return NextResponse.json({ success: true, data: result });
+    return NextResponse.json(payload);
   } catch (error) {
+    if (error instanceof AgentWorkerUnavailableError) {
+      return NextResponse.json({
+        error: error.message,
+        code: "agent_worker_unavailable",
+        ...(commandType === "prompt" ? { accepted: false } : {}),
+      }, { status: 503 });
+    }
     return NextResponse.json({
       error: error instanceof Error ? error.message : String(error),
       ...(commandType === "prompt" && !promptAccepted
@@ -69,22 +55,37 @@ export async function POST(
   }
 }
 
-// GET /api/agent/[id] - Get current agent state
+// GET /api/agent/[id] - Get current agent state.
 export async function GET(
   _req: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
 
   try {
-    const session = getRpcSession(id);
-    if (!session || !session.isAlive()) {
-      return NextResponse.json({ running: false });
+    const workerWasAdvertised = hasAgentWorkerDescriptor();
+    const response = await getExistingAgentWorkerState(id);
+    if (response) {
+      const payload = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
+      if (response.ok || response.status !== 404) return NextResponse.json(payload, { status: response.status });
     }
-
-    const state = await session.send({ type: "get_state" });
-    return NextResponse.json({ running: true, state });
+    const localSession = getRpcSession(id);
+    if (localSession?.isAlive()) {
+      return NextResponse.json({ running: true, state: await localSession.send({ type: "get_state" }) });
+    }
+    if (!response && workerWasAdvertised) {
+      return NextResponse.json({ error: "The agent worker is reconnecting", code: "agent_worker_unavailable", running: "unknown" }, { status: 503 });
+    }
+    if (await resolveSessionPath(id)) return NextResponse.json({ running: false });
+    return NextResponse.json({ error: "Session not found" }, { status: 404 });
   } catch (error) {
+    if (error instanceof AgentWorkerUnavailableError) {
+      return NextResponse.json({
+        error: error.message,
+        code: "agent_worker_unavailable",
+        running: "unknown",
+      }, { status: 503 });
+    }
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
 }

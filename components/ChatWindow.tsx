@@ -24,6 +24,7 @@ import type { SessionStatsInfo } from "@/lib/pi-types";
 import type { AppUpdateResponse } from "@/lib/api-types";
 import type { ToolEntry } from "@/lib/tool-presets";
 import { encodeFilePathForApi } from "@/lib/file-paths";
+import { formatDuration, type SessionTiming } from "@/lib/session-timing";
 import { findChatScrollAnchor, type ChatScrollPosition } from "@/lib/chat-scroll-position";
 import {
   captureScrollDistance,
@@ -41,6 +42,8 @@ interface Props {
   initialScrollPosition?: ChatScrollPosition | null;
   onScrollPositionChange?: (sessionId: string, position: ChatScrollPosition) => void;
   sessionRunning?: boolean;
+  /** Shared one-second clock used by live task timing; avoids one timer per message group. */
+  timingNow: number;
   newSessionCwd: string | null;
   newSessionDraftKey: string | null;
   onAgentEnd?: () => void;
@@ -57,6 +60,7 @@ interface Props {
   onSessionStatsPanelOpen?: () => void;
   onContextUsageChange?: (usage: { percent: number | null; contextWindow: number; tokens: number | null } | null) => void;
   onOpenFile?: (filePath: string, page?: number) => void;
+  onOpenFolder?: (folderPath: string) => void;
   onOpenSession?: (sessionId: string) => void;
   onAskInNewChat?: (prompt: string, sourceSessionId: string, sourceEntryId: string) => Promise<void>;
   onBranchInNewChat?: (sourceSessionId: string, sourceEntryId: string, initialPrompt?: string) => Promise<void>;
@@ -85,6 +89,7 @@ function phaseLabel(phase: AgentPhase, t: (key: string, params?: Record<string, 
   }
   if (phase?.kind === "waiting_model") return t("chat.waitingModel");
   if (phase?.kind === "running_command") return t("chat.runningCommand");
+  if (phase?.kind === "reconnecting") return t("chat.reconnecting");
   return null;
 }
 
@@ -197,45 +202,118 @@ function withAssistantBlocks(
   return next;
 }
 
-function ProcessDetailsGroup({ messageCount, toolCallCount, defaultExpanded = false, reveal = false, children, t }: { messageCount: number; toolCallCount: number; defaultExpanded?: boolean; reveal?: boolean; children: ReactNode; t: (key: string, params?: Record<string, string | number>) => string }) {
-  const [expanded, setExpanded] = useState(defaultExpanded);
+type ProcessStatus = "running" | "completed" | "failed";
+
+function getProcessDurationMs(
+  timing: SessionTiming | undefined,
+  messages: AgentMessage[],
+  entryIds: string[],
+  startIdx: number,
+  endIdx: number,
+): number | undefined {
+  const task = timing?.tasks.find((candidate) => candidate.entryId === entryIds[startIdx]);
+  if (task) return task.activeMs;
+
+  // The streamed/compacted view can temporarily have no matching entry ID.
+  // Use the visible process bounds until the canonical timing payload arrives.
+  const startedAt = messages[startIdx]?.timestamp;
+  const finishedAt = messages[endIdx]?.timestamp;
+  if (typeof startedAt !== "number" || typeof finishedAt !== "number") return undefined;
+  return Math.max(0, finishedAt - startedAt);
+}
+
+function ProcessStatusIcon({ status }: { status: ProcessStatus }) {
+  if (status === "running") {
+    return (
+      <svg className="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" opacity="0.25" />
+        <path d="M21 12a9 9 0 0 0-9-9" />
+      </svg>
+    );
+  }
+  if (status === "failed") {
+    return (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" />
+        <path d="m9 9 6 6M15 9l-6 6" />
+      </svg>
+    );
+  }
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" />
+      <path d="m8 12 3 3 5-6" />
+    </svg>
+  );
+}
+
+function ProcessDetailsGroup({ sessionId, messageCount, toolCallCount, turnDurationMs, activeTaskStartedAt, timingNow, status, live = false, children, t }: { sessionId: string; messageCount: number; toolCallCount: number; turnDurationMs?: number; activeTaskStartedAt?: number; timingNow: number; status: ProcessStatus; live?: boolean; children: ReactNode; t: (key: string, params?: Record<string, string | number>) => string }) {
+  // Process details are opt-in. Never restore or infer expansion from the
+  // session, search target, or run state; only this button may open them.
+  const [expanded, setExpanded] = useState(false);
+  const durationMs = activeTaskStartedAt === undefined
+    ? turnDurationMs
+    : Math.max(0, timingNow - activeTaskStartedAt);
+  // The parent key normally remounts this group on a session switch. Keep the
+  // reset local too, so a reused tree can never carry manual expansion across
+  // sessions.
   useLayoutEffect(() => {
-    if (reveal) setExpanded(true);
-  }, [reveal]);
-  const parts = [t("chat.processDetails"), `${messageCount} ${t(messageCount === 1 ? "chat.message" : "chat.messages")}`];
+    setExpanded(false);
+  }, [sessionId]);
+  useLayoutEffect(() => {
+    if (live) setExpanded(false);
+  }, [live]);
+  const isExpanded = expanded;
+  const parts = [`${messageCount} ${t(messageCount === 1 ? "chat.message" : "chat.messages")}`];
   if (toolCallCount > 0) parts.push(`${toolCallCount} ${t(toolCallCount === 1 ? "chat.toolCall" : "chat.toolCalls")}`);
+  if (durationMs !== undefined) {
+    parts.push(t(status === "running" ? "chat.turnDuration" : "chat.totalDuration", { duration: formatDuration(durationMs) }));
+  }
+  const statusColor = status === "running" ? "var(--accent)" : status === "failed" ? "#ef4444" : "#10b981";
 
   return (
     <div style={{ marginBottom: 14 }}>
       <button
         type="button"
-        aria-expanded={expanded || reveal}
+        aria-expanded={isExpanded}
         onClick={() => setExpanded((v) => !v)}
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 8,
-          width: "auto",
-          minHeight: 24,
-          padding: "2px 0",
-          border: "none",
-          background: "transparent",
+          gap: 10,
+          width: "100%",
+          minHeight: 48,
+          padding: "7px 10px",
+          border: "1px solid var(--border)",
+          borderRadius: 8,
+          background: status === "running" ? "color-mix(in srgb, var(--accent) 6%, var(--bg-panel))" : "var(--bg-panel)",
           color: "var(--text-muted)",
           cursor: "pointer",
           fontSize: 12,
           textAlign: "left",
         }}
-        title={expanded ? t("chat.collapseProcess") : t("chat.expandProcess")}
+        title={isExpanded ? t("chat.collapseProcess") : t("chat.expandProcess")}
       >
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>
+        <span style={{ display: "flex", flexShrink: 0, color: statusColor }}>
+          <ProcessStatusIcon status={status} />
+        </span>
+        <span style={{ minWidth: 0, flex: 1 }}>
+          <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text)", fontWeight: 600 }}>
+            {t("chat.processDetails")}
+          </span>
+          <span style={{ display: "block", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text-dim)", fontSize: 11 }}>
+            {parts.join(" · ")}
+          </span>
+        </span>
+        <span style={{ flexShrink: 0, color: statusColor, fontSize: 11, fontWeight: 600 }}>
+          {t(`agentSwitcher.status.${status}`)}
+        </span>
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>
           <polyline points="4 2.5 7.5 6 4 9.5" />
         </svg>
-        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {parts.join(" · ")}
-        </span>
       </button>
-      {(expanded || reveal) && (
-        <div style={{ marginTop: 8 }}>
+      {isExpanded && (
+        <div style={{ marginTop: 8, marginLeft: 8, paddingLeft: 12, borderLeft: "1px solid var(--border)" }}>
           {children}
         </div>
       )}
@@ -243,11 +321,16 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, defaultExpanded = fa
   );
 }
 
-export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, onOpenSession, onAskInNewChat, onBranchInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
+export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, timingNow, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, onOpenFolder, onOpenSession, onAskInNewChat, onBranchInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
   const { t } = useI18n();
   const [displayName] = useDisplayName();
   const isMobile = useIsMobile();
   const completionNotificationsEnabled = session?.relation?.kind !== "subagent";
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   // Wrap onAgentEnd to play the completion sound. This is more reliable than
   // wrapping handleAgentEventRef because useAgentSession overwrites that ref
@@ -285,7 +368,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   const [restoreAnchorReady, setRestoreAnchorReady] = useState(false);
 
   const {
-    loading, error, messages, activeToolResults, entryIds, historyCursor, hasEarlierMessages, streamState,
+    data, loading, error, messages, activeToolResults, entryIds, historyCursor, hasEarlierMessages, streamState,
     agentRunning, bashRunning, pendingBash, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, modelSwitching, sessionStats,
@@ -763,6 +846,10 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       sessionStats.tokens.total,
       sessionStats.cost ?? 0,
       sessionStats.totalActiveMs ?? 0,
+      sessionStats.timing?.modelMs ?? 0,
+      sessionStats.timing?.toolMs ?? 0,
+      sessionStats.timing?.tasks.length ?? 0,
+      sessionStats.activeTaskStartedAt ?? 0,
     ].join("|")
     : null;
   const sessionStatsRef = useRef(sessionStats);
@@ -808,6 +895,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
         error?: string;
       };
       if (!response.ok) throw new Error(result.error ?? "Document upload failed");
+      if (!mountedRef.current) return;
       const uploaded = result.uploaded ?? [];
       const failed = [
         ...(result.skipped ?? []).map((name) => `${name} (skipped)`),
@@ -816,7 +904,8 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       if (failed.length > 0) {
         addNotice({ type: "error", message: `Some files were not uploaded: ${failed.join(", ")}` });
       }
-      const mentions = uploaded.map((name) => /[^\w./-]/.test(name) ? `@"${name.replaceAll('"', '\\\"')}" ` : `@${name} `);
+      chatInputRef?.current?.addFiles(uploaded);
+      const mentions = uploaded.map((name) => /[^\w./-]/.test(name) ? `@"${name.replaceAll('"', '\\"')}" ` : `@${name} `);
       if (mentions.length > 0) chatInputRef?.current?.insertText(mentions.join(""));
     } catch (error) {
       addNotice({ type: "error", message: error instanceof Error ? error.message : String(error) });
@@ -852,9 +941,28 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     return history.reverse();
   }, [messages]);
   const messageRefs = useMessageRefs(visibleMessages.length);
-  const revealHistoryForMinimap = useCallback(() => {
+  const revealHistoryForMinimap = useCallback((entryId: string) => {
     setVisibleCount((current) => Math.max(current, messages.length * 2));
-  }, [messages.length]);
+    if (entryIds.includes(entryId) || loadingOlderRef.current) return;
+    const sid = session?.id ?? sessionIdRef.current;
+    if (!sid) return;
+
+    loadingOlderRef.current = true;
+    void (async () => {
+      let before = searchHistoryRef.current.historyCursor;
+      let hasMore = searchHistoryRef.current.hasEarlierMessages;
+      while (hasMore && before) {
+        const context = await loadContext(sid, activeLeafId, before);
+        if (!context) break;
+        setVisibleCount((current) => current + Math.max(VISIBLE_PAGE_SIZE, context.messages.length * 2));
+        if (context.entryIds.includes(entryId) || context.oldestEntryId === before) break;
+        before = context.oldestEntryId;
+        hasMore = context.hasMore;
+      }
+    })().finally(() => {
+      loadingOlderRef.current = false;
+    });
+  }, [activeLeafId, entryIds, loadContext, messages.length, session?.id, sessionIdRef]);
 
   const isEmptyNew = isNew && messages.length === 0 && !streamState.isStreaming && !sessionBusy;
   const hasStreamingContent = Boolean(streamState.streamingMessage?.content.length);
@@ -1007,6 +1115,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       onAudioUnlock={unlockAudio}
       draftKey={session?.id ?? newSessionDraftKey ?? undefined}
       cwd={session?.cwd ?? newSessionCwd}
+      onDropFiles={onDrop}
+      onOpenFile={onOpenFile}
+      onOpenFolder={onOpenFolder}
     />
   );
 
@@ -1202,20 +1313,14 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                   continue;
                 }
 
-                const isLiveTail = (sessionBusy || streamState.isStreaming) && endIdx === messages.length && userIdx === lastAnchorIdx;
-                if (isLiveTail) {
-                  for (let renderIdx = userIdx; renderIdx < endIdx; renderIdx++) {
-                    rendered.push(renderMessage(renderIdx));
-                  }
-                  idx = endIdx;
-                  continue;
-                }
+                const isLiveTail = (sessionRunning || sessionBusy || isCompacting || streamState.isStreaming) && endIdx === messages.length && userIdx === lastAnchorIdx;
 
                 rendered.push(renderMessage(userIdx));
 
                 const finalAssistant = messages[finalAssistantIdx] as AssistantMessage;
                 const finalSplit = splitFinalAssistantBlocks(finalAssistant);
-                const finalAnswerMessage = finalSplit.answerBlocks.length > 0 || getAssistantErrorMessage(finalAssistant) || isAssistantTruncated(finalAssistant)
+                const finalError = getAssistantErrorMessage(finalAssistant);
+                const finalAnswerMessage = finalSplit.answerBlocks.length > 0 || finalError || isAssistantTruncated(finalAssistant)
                   ? withAssistantBlocks(finalAssistant, finalSplit.answerBlocks)
                   : null;
 
@@ -1226,12 +1331,10 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 const processViews: ReactNode[] = [];
                 let processToolCount = 0;
                 let processRefIdx: number | undefined;
-                let revealProcess = false;
 
                 for (let processIdx = userIdx + 1; processIdx <= finalAssistantIdx; processIdx++) {
                   const processMessage = messages[processIdx];
                   if (processMessage.role === "custom") {
-                    revealProcess ||= Boolean(pendingSearchScroll && pendingSearchScroll.entryId === entryIds[processIdx]);
                     processViews.push(renderMessage(processIdx, { attachRef: false, keyPrefix: "process" }));
                     continue;
                   }
@@ -1243,7 +1346,6 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                   if (blocks.length === 0) continue;
                   processRefIdx ??= visibleRefIndexByMessage.get(processIdx);
                   processToolCount += countToolCallBlocks(blocks);
-                  revealProcess ||= Boolean(pendingSearchScroll && entryIds[processIdx] === pendingSearchScroll.entryId && (!searchBlock || blocks.includes(searchBlock)));
                   processViews.push(renderMessage(processIdx, {
                     attachRef: false,
                     keyPrefix: "process",
@@ -1253,12 +1355,13 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 }
 
                 if (processViews.length > 0) {
+                  const turnDurationMs = getProcessDurationMs(data?.timing, messages, entryIds, userIdx, finalAssistantIdx);
                   rendered.push(
                     <div
-                      key={`process-group-${entryIds[userIdx] ?? userIdx}`}
+                      key={`process-group-${session?.id ?? sessionIdRef.current ?? "new"}-${entryIds[userIdx] ?? userIdx}`}
                       ref={processRefIdx === undefined ? undefined : (el) => { messageRefs.current[processRefIdx] = el; }}
                     >
-                      <ProcessDetailsGroup messageCount={processViews.length} toolCallCount={processToolCount} defaultExpanded={!finalAnswerMessage} reveal={revealProcess} t={t}>
+                      <ProcessDetailsGroup sessionId={session?.id ?? sessionIdRef.current ?? "new"} messageCount={processViews.length} toolCallCount={processToolCount} turnDurationMs={turnDurationMs} activeTaskStartedAt={isLiveTail ? sessionStats?.activeTaskStartedAt : undefined} timingNow={timingNow} status={isLiveTail ? "running" : finalError ? "failed" : "completed"} live={isLiveTail} t={t}>
                         {processViews}
                       </ProcessDetailsGroup>
                     </div>,
@@ -1337,11 +1440,45 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
         {isMobile || pendingScrollRestore ? null : (
           <ChatMinimap
             messages={messages}
+            entryIds={entryIds}
+            historyInputs={data?.context.historyInputs ?? []}
             streamingMessage={streamState.streamingMessage}
             scrollContainer={scrollContainerRef}
             messageRefs={messageRefs}
             onRevealHistory={revealHistoryForMinimap}
           />
+        )}
+        {showScrollToBottom && !pendingScrollRestore && (
+          <button
+            type="button"
+            aria-label={t("chat.scrollToBottom")}
+            title={t("chat.scrollToBottom")}
+            data-scroll-to-bottom=""
+            onClick={() => scrollToBottom("smooth")}
+            style={{
+              position: "absolute",
+              right: isMobile ? 12 : CHAT_MINIMAP_WIDTH + 12,
+              bottom: 12,
+              zIndex: 25,
+              width: 32,
+              height: 32,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 0,
+              border: "1px solid var(--border)",
+              borderRadius: "50%",
+              background: "var(--bg-panel)",
+              color: "var(--text-muted)",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.16)",
+              cursor: "pointer",
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 4v15" />
+              <path d="m6 13 6 6 6-6" />
+            </svg>
+          </button>
         )}
         </>}
       </div>
@@ -1528,6 +1665,13 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
 const NOTICE_MAX_HEIGHT_PX = 500;
 const NOTICE_TEXT_MAX_HEIGHT_PX = NOTICE_MAX_HEIGHT_PX - 30;
 
+function splitLeadingEmoji(message: string): { emoji: string | null; text: string } {
+  const match = message.match(/^(\p{Extended_Pictographic}(?:\p{Emoji_Modifier})?(?:\uFE0F|\uFE0E)?(?:\u200D\p{Extended_Pictographic}(?:\p{Emoji_Modifier})?(?:\uFE0F|\uFE0E)?)*)\s*/u);
+  return match
+    ? { emoji: match[1], text: message.slice(match[0].length) }
+    : { emoji: null, text: message };
+}
+
 function NoticeShelf({ notices, floating = false, onPauseChange }: { notices: NoticeItem[]; floating?: boolean; onPauseChange?: (id: string | null) => void }) {
   if (notices.length === 0) return null;
   return (
@@ -1541,83 +1685,74 @@ function NoticeShelf({ notices, floating = false, onPauseChange }: { notices: No
       }}
     >
       {notices.map((notice, index) => {
-        const color = notice.type === "error"
-          ? "#ef4444"
-          : notice.type === "warning"
-            ? "#d97706"
-            : notice.type === "success"
-              ? "#10b981"
-              : "var(--accent)";
+        const { emoji, text } = splitLeadingEmoji(notice.message);
         return (
-          <div
-            key={notice.id}
-            className="notice-shelf-item"
-            onMouseEnter={() => onPauseChange?.(notice.id)}
-            onMouseLeave={(event) => {
-              if (!event.currentTarget.contains(document.activeElement)) onPauseChange?.(null);
-            }}
-            onFocus={() => onPauseChange?.(notice.id)}
-            onBlur={(event) => {
-              if (!event.currentTarget.matches(":hover")) onPauseChange?.(null);
-            }}
-            style={{
-              display: "flex",
-              // Top-align children so the type dot sits by the first line on multi-line toasts
-              alignItems: "flex-start",
-              gap: 10,
-              minHeight: 60,
-              height: "auto",
-              // 整体高度上限：超出后由文本区内部滚动承担（见下方 span 的 overflowY），
-              // 容器自身保持 hidden，小圆点固定在顶部不随文本滚动
-              maxHeight: NOTICE_MAX_HEIGHT_PX,
-              // The floating wrapper is pointerEvents:"none" (click-through by design),
-              // so the toast itself must opt back into interactivity or hover events never reach it
-              pointerEvents: "auto",
-              marginBottom: index === notices.length - 1 ? 0 : 6,
-              overflow: "hidden",
-              borderRadius: 14,
-              border: "1px solid color-mix(in srgb, var(--border) 70%, transparent)",
-              background: "var(--bg)",
-              color: "var(--text-muted)",
-              width: "fit-content",
-              maxWidth: "min(100%, 620px)",
-              boxShadow: floating
-                ? "0 1px 2px rgba(15,23,42,0.05), 0 10px 28px -14px rgba(15,23,42,0.24)"
-                : "0 1px 2px rgba(15,23,42,0.04), 0 8px 24px -12px rgba(15,23,42,0.10)",
-              fontSize: 14,
-              lineHeight: 1.5,
-              transformOrigin: "top right",
-              // Use backwards fill for the entrance animation so height styles return to
-              // inline styles once it finishes; otherwise the keyframe's fixed 60px would
-              // stick around in fill mode and permanently clamp the expanded toast
-              animation: notice.exiting
-                ? "notice-shelf-out 0.18s ease-in forwards"
-                : "notice-shelf-in 0.18s ease-out backwards",
-              padding: "0 12px",
-            }}
-          >
+        <div
+          key={notice.id}
+          className="notice-shelf-item"
+          onMouseEnter={() => onPauseChange?.(notice.id)}
+          onMouseLeave={(event) => {
+            if (!event.currentTarget.contains(document.activeElement)) onPauseChange?.(null);
+          }}
+          onFocus={() => onPauseChange?.(notice.id)}
+          onBlur={(event) => {
+            if (!event.currentTarget.matches(":hover")) onPauseChange?.(null);
+          }}
+          style={{
+            display: "flex",
+            // Keep a leading message emoji aligned with the first line on multi-line toasts.
+            alignItems: "flex-start",
+            gap: 14,
+            minHeight: 60,
+            height: "auto",
+            // 整体高度上限：超出后由文本区内部滚动承担（见下方 span 的 overflowY），
+            // 容器自身保持 hidden，图标固定在顶部不随文本滚动
+            maxHeight: NOTICE_MAX_HEIGHT_PX,
+            // The floating wrapper is pointerEvents:"none" (click-through by design),
+            // so the toast itself must opt back into interactivity or hover events never reach it
+            pointerEvents: "auto",
+            marginBottom: index === notices.length - 1 ? 0 : 6,
+            overflow: "hidden",
+            borderRadius: 8,
+            border: "1px solid color-mix(in srgb, var(--border) 92%, transparent)",
+            background: "var(--bg-panel)",
+            color: "var(--text-muted)",
+            width: "fit-content",
+            maxWidth: "min(100%, 620px)",
+            boxShadow: floating
+              ? "0 1px 2px rgba(15,23,42,0.05), 0 10px 28px -14px rgba(15,23,42,0.24)"
+              : "0 1px 2px rgba(15,23,42,0.04), 0 8px 24px -12px rgba(15,23,42,0.10)",
+            fontFamily: "inherit",
+            fontSize: 14,
+            fontWeight: 500,
+            lineHeight: 1.5,
+            transformOrigin: "top right",
+            // Use backwards fill for the entrance animation so height styles return to
+            // inline styles once it finishes; otherwise the keyframe's fixed 60px would
+            // stick around in fill mode and permanently clamp the expanded toast
+            animation: notice.exiting
+              ? "notice-shelf-out 0.18s ease-in forwards"
+              : "notice-shelf-in 0.18s ease-out backwards",
+            padding: "0 20px",
+          }}
+        >
+          {emoji && (
             <span
-              style={{
-                width: 7,
-                height: 7,
-                borderRadius: "50%",
-                background: color,
-                flexShrink: 0,
-                // Align with the optical center of the first text line: 14px vertical
-                // padding + (21px line box - 7px dot) / 2
-                marginTop: 21,
-              }}
-            />
-            {/* Full text by default: pre-line preserves \n (nowrap/normal collapse
-                newlines into spaces) and long lines wrap instead of truncating;
-                content taller than the cap scrolls inside the text area */}
-            <span
-              tabIndex={0}
-              style={{ padding: "14px 0", minWidth: 0, maxWidth: "100%", maxHeight: NOTICE_TEXT_MAX_HEIGHT_PX, overflowY: "auto", scrollbarWidth: "thin", whiteSpace: "pre-line", wordBreak: "break-word" }}
+              aria-hidden="true"
+              style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 20, height: 20, flexShrink: 0, marginTop: 18, fontSize: 18, lineHeight: 1 }}
             >
-              {notice.message}
+              {emoji}
             </span>
-          </div>
+          )}
+          {/* Full text by default: pre-line preserves \n and long lines wrap instead
+              of truncating; content taller than the cap scrolls inside the text area. */}
+          <span
+            tabIndex={0}
+            style={{ padding: "18px 0", minWidth: 0, maxWidth: "100%", maxHeight: NOTICE_TEXT_MAX_HEIGHT_PX, overflowY: "auto", scrollbarWidth: "thin", whiteSpace: "pre-line", wordBreak: "break-word", color: "var(--text-muted)" }}
+          >
+            {text}
+          </span>
+        </div>
         );
       })}
     </div>

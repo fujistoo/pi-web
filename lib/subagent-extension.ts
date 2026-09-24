@@ -11,6 +11,7 @@ import {
   type SubagentRunInfo,
 } from "./subagents";
 import { MAX_SUBAGENT_INPUT_FILES } from "./subagent-input";
+import type { ProductAgentRole, ProductSubagentContext } from "./product-messaging";
 
 export const HOST_SUBAGENT_EXTENSION_NAME = "pi-web-subagents";
 const HOST_SUBAGENT_EXTENSION_PATH = `<inline:${HOST_SUBAGENT_EXTENSION_NAME}>`;
@@ -31,6 +32,7 @@ export interface SubagentToolDetails {
   worktreePath?: string;
   worktreeBranch?: string;
   worktreeCleanupError?: string;
+  product?: ProductSubagentContext;
 }
 
 export interface StartSubagentRequest {
@@ -46,6 +48,7 @@ export interface StartSubagentRequest {
   maxTurns?: number;
   inheritContext?: boolean;
   isolation?: "worktree";
+  product?: ProductSubagentContext;
   signal?: AbortSignal;
   onUpdate?: (run: SubagentRunInfo) => void;
 }
@@ -57,6 +60,7 @@ export interface ResumeSubagentRequest {
   task: string;
   description: string;
   runInBackground?: boolean;
+  product?: ProductSubagentContext;
   signal?: AbortSignal;
   onUpdate?: (run: SubagentRunInfo) => void;
 }
@@ -102,6 +106,7 @@ export function subagentToolDetails(run: SubagentRunInfo): SubagentToolDetails {
     ...(run.worktreePath ? { worktreePath: run.worktreePath } : {}),
     ...(run.worktreeBranch ? { worktreeBranch: run.worktreeBranch } : {}),
     ...(run.worktreeCleanupError ? { worktreeCleanupError: run.worktreeCleanupError } : {}),
+    ...(run.product ? { product: run.product } : {}),
   };
 }
 
@@ -149,11 +154,12 @@ export function createSubagentExtension(
       pi.registerTool(defineTool({
         name: "Agent",
         label: "Agent",
-        description: `Delegate a focused task to a configured subagent. Each subagent runs as a full, inspectable Pi session. Use background mode for independent work and foreground mode when the result is needed immediately.\n\nAvailable agent types:\n${agentTypeDescription(profiles)}`,
-        promptSnippet: "Delegate a focused task to an inspectable subagent session",
+        description: `Delegate a focused task to a configured subagent. Each subagent runs as a full, inspectable Pi session. Independent tasks must be emitted as separate Agent calls in the same response so Pi can run them concurrently; use background mode when the parent can continue without their results.\n\nAvailable agent types:\n${agentTypeDescription(profiles)}`,
+        promptSnippet: "Delegate to inspectable subagents; fan out independent work in one response",
         promptGuidelines: [
           "Use Agent for a focused task that benefits from an isolated context.",
-          "Use multiple background Agent calls in the same response for independent parallel work.",
+          "Hard rule: when two delegated tasks are independent, emit both Agent calls in the same response instead of waiting for the first; Pi executes this tool in parallel mode.",
+          "Keep dependent tasks sequential, and isolate concurrent writers with separate worktrees or workspaces.",
           "Do not duplicate work already delegated to a running subagent.",
         ],
         executionMode: "parallel",
@@ -172,6 +178,12 @@ export function createSubagentExtension(
           max_turns: Type.Optional(Type.Number({ description: "Optional positive agent turn limit." })),
           inherit_context: Type.Optional(Type.Boolean({ description: "Include the parent session's active conversation context." })),
           isolation: Type.Optional(Type.String({ description: "Run the subagent in an isolated git worktree." })),
+          product: Type.Optional(Type.Object({
+            feature: Type.String({ description: "Product feature key." }),
+            run_id: Type.String({ description: "Durable product run ID." }),
+            role: Type.String({ description: "Product specialist role." }),
+            task_id: Type.Optional(Type.String({ description: "Durable run task ID, for example TASK-001." })),
+          })),
         }),
         async execute(toolCallId, params, signal, onUpdate, ctx) {
           try {
@@ -184,6 +196,7 @@ export function createSubagentExtension(
                   task: params.prompt,
                   description: params.description,
                   ...(params.run_in_background !== undefined ? { runInBackground: params.run_in_background } : {}),
+                  ...(params.product ? { product: { feature: params.product.feature, runId: params.product.run_id, role: params.product.role as ProductAgentRole, ...(params.product.task_id ? { taskId: params.product.task_id } : {}) } } : {}),
                   signal,
                   onUpdate: (run) => onUpdate?.({
                     content: [{ type: "text", text: `${run.profile}: ${run.description} (${run.status})` }],
@@ -203,6 +216,7 @@ export function createSubagentExtension(
               ...(params.max_turns ? { maxTurns: params.max_turns } : {}),
               ...(params.inherit_context !== undefined ? { inheritContext: params.inherit_context } : {}),
               ...(params.isolation === "worktree" ? { isolation: "worktree" as const } : {}),
+              ...(params.product ? { product: { feature: params.product.feature, runId: params.product.run_id, role: params.product.role as ProductAgentRole, ...(params.product.task_id ? { taskId: params.product.task_id } : {}) } } : {}),
               signal,
               onUpdate: (run) => onUpdate?.({
                 content: [{ type: "text", text: `${run.profile}: ${run.description} (${run.status})` }],

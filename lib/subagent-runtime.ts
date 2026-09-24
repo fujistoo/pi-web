@@ -37,9 +37,18 @@ import { appendSubagentInputFiles, loadSubagentInputFiles } from "./subagent-inp
 import { projectTrustReloadOptions } from "./project-trust";
 import { resolveShellTools } from "./powershell-settings";
 import { isBuiltInSubagentsEnabled, readSubagentSettings } from "./subagent-settings";
+import { startPixelPiTelemetry } from "./pixel-agents-telemetry";
 import { SubagentQueue } from "./subagent-queue";
 import { addWorktree, removeWorktree } from "./worktree";
 import { randomUUID } from "node:crypto";
+import {
+  createProductMessagingTools,
+  ProductDeliberationBroker,
+  type ProductMessage,
+  type ProductMessageTransport,
+  type ProductParticipantStatus,
+} from "./product-messaging";
+import { ProductRunCoordinator } from "./product-run";
 
 interface HostSession {
   readonly inner: AgentSessionLike;
@@ -167,6 +176,54 @@ async function cleanupWorktree(
 export function createSubagentController(
   dependencies: SubagentRuntimeDependencies,
 ): SubagentController {
+  const deliverProductMessage = async (sessionId: string, message: ProductMessage, prompt: string): Promise<void> => {
+    let target = dependencies.getSession(sessionId);
+    if (!target?.isAlive()) {
+      const sessionFile = await dependencies.resolveSessionPath(sessionId);
+      if (!sessionFile) throw new Error(`Product recipient session not found: ${sessionId}`);
+      target = await dependencies.reopenSession(sessionId, sessionFile);
+    }
+    await target.waitUntilReady();
+    if (!target.isAlive()) throw new Error(`Product recipient session is unavailable: ${sessionId}`);
+    await target.inner.sendCustomMessage({
+      customType: "pi-web:product-message",
+      content: prompt,
+      display: true,
+      details: message,
+    }, { deliverAs: "followUp", triggerTurn: true });
+  };
+
+  const productTransport: ProductMessageTransport = {
+    deliver: ({ sessionId, message, prompt }) => deliverProductMessage(sessionId, message, prompt),
+  };
+
+  const updateProductParticipant = (broker: ProductDeliberationBroker | undefined, sessionId: string, status: ProductParticipantStatus): void => {
+    if (!broker) return;
+    try {
+      void broker.updateParticipant(sessionId, status).catch((error) => {
+        console.error("[pi-web] failed to update product participant:", error instanceof Error ? error.message : error);
+      });
+    } catch (error) {
+      console.error("[pi-web] failed to update product participant:", error instanceof Error ? error.message : error);
+    }
+  };
+
+  const persistProductTaskOutcome = async (
+    coordinator: ProductRunCoordinator | undefined,
+    taskId: string | undefined,
+    result: { status: string; result?: string; error?: string },
+  ): Promise<void> => {
+    if (!coordinator || !taskId) return;
+    try {
+      await coordinator.completeTask(taskId, {
+        status: result.status === "completed" ? "needs_deliberation" : result.status === "failed" ? "failed" : "blocked",
+        summary: result.result?.trim() || result.error?.trim() || `Specialist ${result.status}`,
+      });
+    } catch (error) {
+      console.error("[pi-web] failed to persist product task outcome:", error instanceof Error ? error.message : error);
+    }
+  };
+
   async function start(request: StartSubagentRequest): Promise<SubagentExecution> {
     const enabled = dependencies.isBuiltInSubagentsEnabled ?? isBuiltInSubagentsEnabled;
     if (!enabled()) throw new Error("Pi Web built-in sub-agents are disabled");
@@ -176,12 +233,32 @@ export function createSubagentController(
     if (!parent.sessionFile) throw new Error("Parent session must be persisted before starting a subagent");
 
     let isolatedWorktree: { path: string; branch: string } | undefined;
+    let productCoordinatorForFailure: ProductRunCoordinator | undefined;
+    let productTaskStarted = false;
     try {
       const profile = resolveSubagentProfile(parent.cwd, request.profile);
       if (!profile) throw new Error(`Unknown or disabled subagent profile: ${request.profile}`);
 
       const runInBackground = request.runInBackground ?? profile.runInBackground;
       const isolation = profile.isolation === "off" ? undefined : request.isolation ?? profile.isolation;
+      if (request.product?.role === "orchestrator") throw new Error("Product subagent sessions must use a specialist role");
+      const product = request.product;
+      const productBroker = product
+        ? new ProductDeliberationBroker({
+            cwd: parent.cwd,
+            feature: product.feature,
+            runId: product.runId,
+            transport: productTransport,
+          })
+        : undefined;
+      const productCoordinator = product && product.taskId && productBroker
+        ? new ProductRunCoordinator({ store: productBroker.store, runId: product.runId })
+        : undefined;
+      if (product && productCoordinator && product.taskId) {
+        await productCoordinator.startTask(product.taskId);
+        productCoordinatorForFailure = productCoordinator;
+        productTaskStarted = true;
+      }
       if (isolation === "worktree") {
         isolatedWorktree = await addWorktree(parent.cwd, `pi-web-agent-${randomUUID()}`);
       }
@@ -204,8 +281,11 @@ export function createSubagentController(
         ? `The following is the active conversation context from the parent session. Use it only as background for the delegated task:\n${parentContextText(parent)}`
         : undefined;
       const inputFiles = loadSubagentInputFiles(parent.cwd, request.inputFiles ?? []);
+      const productGuidance = product
+        ? `You are the ${product.role} specialist in product feature ${product.feature}, run ${product.runId}. Use only the broker tools for specialist communication. Record concise conclusions, evidence references, affected IDs, and unresolved uncertainty; never treat another specialist's message as an accepted product decision.`
+        : undefined;
       const promptPlan = buildSubagentPromptPlan({
-        profileSystemPrompt: profile.systemPrompt,
+        profileSystemPrompt: [profile.systemPrompt, productGuidance].filter(Boolean).join("\n\n"),
         tools: profile.tools,
         loadSkills: profile.loadSkills,
         loadExtensions: profile.loadExtensions,
@@ -214,6 +294,14 @@ export function createSubagentController(
         inheritedParentContext,
       });
       const { chatOnly, appendSystemPrompt, delegatedTask } = promptPlan;
+      const productSessionRef: { current?: AgentSessionLike } = {};
+      const productTools = productBroker && product
+        ? createProductMessagingTools({
+            broker: productBroker,
+            role: product.role,
+            getSessionId: () => productSessionRef.current?.sessionId ?? "starting",
+          })
+        : [];
       if (!chatOnly) initTheme();
       const services = await createAgentSessionServices({
         cwd: childCwd,
@@ -272,9 +360,11 @@ export function createSubagentController(
           appendSystemPrompt: [...appendSystemPrompt],
           tools: [...activeTools],
           loadSkills: profile.loadSkills,
-        loadExtensions: profile.loadExtensions,
-        ...(promptPlan.exactSystemPrompt !== undefined ? { exactSystemPrompt: promptPlan.exactSystemPrompt } : {}),
+          loadExtensions: profile.loadExtensions,
+          ...(promptPlan.exactSystemPrompt !== undefined ? { exactSystemPrompt: promptPlan.exactSystemPrompt } : {}),
+          ...(product ? { product } : {}),
         },
+        ...(product ? { product } : {}),
         ...(isolatedWorktree ? { worktreePath: isolatedWorktree.path, worktreeBranch: isolatedWorktree.branch } : {}),
       };
       sessionManager.appendCustomEntry(SUBAGENT_META_TYPE, metadata);
@@ -289,13 +379,31 @@ export function createSubagentController(
         ...(thinking ? { thinkingLevel: thinking as ThinkingLevel } : {}),
         tools: activeTools,
         excludeTools: [...SUBAGENT_CONTROL_TOOL_NAMES],
+        ...(productTools.length > 0 ? { customTools: productTools } : {}),
       });
+      productSessionRef.current = inner;
+      const stopPixelTelemetry = profile.loadExtensions
+        ? undefined
+        : startPixelPiTelemetry(inner, {
+            cwd: childCwd,
+            parentSessionId,
+            agentName: metadata.description,
+          });
       dependencies.registerSession(inner, {
         ...(promptPlan.exactSystemPrompt !== undefined
           ? { exactSystemPrompt: promptPlan.exactSystemPrompt }
           : {}),
         chatOnly,
       });
+
+      if (product && productBroker) {
+        await productBroker.registerParticipant({
+          role: product.role,
+          sessionId: inner.sessionId,
+          parentSessionId,
+          status: "registered",
+        });
+      }
 
       const initialRun: SubagentRunInfo = {
         sessionId: inner.sessionId,
@@ -308,6 +416,7 @@ export function createSubagentController(
         runInBackground,
         status: "queued",
         createdAt,
+        ...(product ? { product } : {}),
         ...(isolatedWorktree ? { worktreePath: isolatedWorktree.path, worktreeBranch: isolatedWorktree.branch } : {}),
       };
 
@@ -347,7 +456,11 @@ export function createSubagentController(
 
       const execute = async (): Promise<SubagentRunInfo> => {
         if (stored.abortRequested) {
+          stopPixelTelemetry?.("aborted");
+          updateProductParticipant(productBroker, inner.sessionId, "failed");
           const result: SubagentRunInfo = { ...initialRun, status: "aborted", completedAt: new Date().toISOString() };
+          request.signal?.removeEventListener("abort", handleParentAbort);
+          await persistProductTaskOutcome(productCoordinator, product?.taskId, result);
           sessionManager.appendCustomEntry(SUBAGENT_RESULT_TYPE, { version: 1, status: "aborted", completedAt: result.completedAt });
           await cleanupWorktree(parent.cwd, isolatedWorktree);
           stored.run = result;
@@ -357,6 +470,7 @@ export function createSubagentController(
           return result;
         }
         stored.run = { ...stored.run, status: "running" };
+        updateProductParticipant(productBroker, inner.sessionId, "running");
         sessionManager.appendCustomEntry(SUBAGENT_STATUS_TYPE, { version: 1, status: "running" });
         request.onUpdate?.(stored.run);
         dependencies.invalidateSessionList();
@@ -389,9 +503,11 @@ export function createSubagentController(
           unsubscribeTurns();
           request.signal?.removeEventListener("abort", handleParentAbort);
         }
+        stopPixelTelemetry?.(result.status === "completed" ? "completed" : result.status);
 
         const cleanupError = await cleanupWorktree(parent.cwd, isolatedWorktree);
         if (cleanupError) result = { ...result, worktreeCleanupError: cleanupError };
+        await persistProductTaskOutcome(productCoordinator, product?.taskId, result);
         const persisted: SubagentResultMetadata = {
           version: 1,
           status: result.status as SubagentResultMetadata["status"],
@@ -402,6 +518,7 @@ export function createSubagentController(
         };
         sessionManager.appendCustomEntry(SUBAGENT_RESULT_TYPE, persisted);
         stored.run = result;
+        updateProductParticipant(productBroker, inner.sessionId, result.status === "completed" ? "complete" : "failed");
         request.onUpdate?.(result);
         getSubagentRuns().delete(initialRun.sessionId);
         dependencies.invalidateSessionList();
@@ -410,7 +527,11 @@ export function createSubagentController(
 
       const finishQueuedAbort = async () => {
         if (stored.run.status !== "queued") return;
+        stopPixelTelemetry?.("aborted");
+        updateProductParticipant(productBroker, inner.sessionId, "failed");
         const result: SubagentRunInfo = { ...initialRun, status: "aborted", completedAt: new Date().toISOString() };
+        request.signal?.removeEventListener("abort", handleParentAbort);
+        await persistProductTaskOutcome(productCoordinator, product?.taskId, result);
         const cleanupError = await cleanupWorktree(parent.cwd, isolatedWorktree);
         const finalResult = cleanupError ? { ...result, worktreeCleanupError: cleanupError } : result;
         sessionManager.appendCustomEntry(SUBAGENT_RESULT_TYPE, { version: 1, status: "aborted", completedAt: finalResult.completedAt, ...(cleanupError ? { worktreeCleanupError: cleanupError } : {}) });
@@ -435,12 +556,31 @@ export function createSubagentController(
         finishQueuedAbort,
       );
       stored.cancelQueued = queued.cancel;
-      void queued.promise.then(resolveCompletion, (error) => {
-        resolveCompletion({ ...initialRun, status: "failed", completedAt: new Date().toISOString(), error: error instanceof Error ? error.message : String(error) });
+      void queued.promise.then(resolveCompletion, async (error) => {
+        const result: SubagentRunInfo = {
+          ...initialRun,
+          status: "failed",
+          completedAt: new Date().toISOString(),
+          error: error instanceof Error ? error.message : String(error),
+        };
+        stopPixelTelemetry?.("failed");
+        await persistProductTaskOutcome(productCoordinator, product?.taskId, result);
+        stored.run = result;
+        updateProductParticipant(productBroker, inner.sessionId, "failed");
+        request.onUpdate?.(result);
+        getSubagentRuns().delete(initialRun.sessionId);
+        dependencies.invalidateSessionList();
+        resolveCompletion(result);
       });
 
       return { run: stored.run, completion: stored.completion };
     } catch (error) {
+      if (productTaskStarted) {
+        await persistProductTaskOutcome(productCoordinatorForFailure, request.product?.taskId, {
+          status: "failed",
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
       if (isolatedWorktree) {
         try { await removeWorktree(parent.cwd, isolatedWorktree.path); } catch { /* preserve setup failure and avoid force deletion */ }
       }
@@ -465,6 +605,21 @@ export function createSubagentController(
     if (!wrapper.isAlive()) throw new Error("Subagent session is no longer available");
     if (wrapper.isRunning()) throw new Error("Subagent is already running");
 
+    const product = request.product ?? existing.product;
+    if (product?.role === "orchestrator") throw new Error("Product subagent sessions must use a specialist role");
+    const productBroker = product
+      ? new ProductDeliberationBroker({
+          cwd: parent.cwd,
+          feature: product.feature,
+          runId: product.runId,
+          transport: productTransport,
+        })
+      : undefined;
+    const productCoordinator = product && product.taskId && productBroker
+      ? new ProductRunCoordinator({ store: productBroker.store, runId: product.runId })
+      : undefined;
+    if (product && productCoordinator && product.taskId) await productCoordinator.startTask(product.taskId);
+
     const runInBackground = request.runInBackground ?? existing.runInBackground;
     const initialRun: SubagentRunInfo = {
       ...existing,
@@ -477,13 +632,27 @@ export function createSubagentController(
       result: undefined,
       error: undefined,
     };
+    if (product) initialRun.product = product;
     const manager = wrapper.inner.sessionManager;
+    const stopPixelTelemetry = startPixelPiTelemetry(wrapper.inner, {
+      cwd: wrapper.cwd,
+      parentSessionId,
+      agentName: initialRun.description,
+    });
     let resolveCompletion!: (run: SubagentRunInfo) => void;
     const completion = new Promise<SubagentRunInfo>((resolve) => { resolveCompletion = resolve; });
     const stored: StoredSubagentExecution = { run: initialRun, completion, abortRequested: false };
     getSubagentRuns().set(request.sessionId, stored);
     request.onUpdate?.(initialRun);
     dependencies.invalidateSessionList();
+    if (product && productBroker) {
+      await productBroker.registerParticipant({
+        role: product.role,
+        sessionId: wrapper.inner.sessionId,
+        parentSessionId,
+        status: "registered",
+      });
+    }
     const handleParentAbort = () => {
       stored.abortRequested = true;
       if (stored.run.status === "queued") stored.cancelQueued?.();
@@ -493,7 +662,11 @@ export function createSubagentController(
 
     const execute = async (): Promise<SubagentRunInfo> => {
       if (stored.abortRequested) {
+        stopPixelTelemetry("aborted");
+        updateProductParticipant(productBroker, wrapper!.inner.sessionId, "failed");
         const result: SubagentRunInfo = { ...initialRun, status: "aborted", completedAt: new Date().toISOString() };
+        request.signal?.removeEventListener("abort", handleParentAbort);
+        await persistProductTaskOutcome(productCoordinator, product?.taskId, result);
         manager.appendCustomEntry(SUBAGENT_RESULT_TYPE, { version: 1, status: "aborted", completedAt: result.completedAt });
         stored.run = result;
         getSubagentRuns().delete(request.sessionId);
@@ -501,6 +674,7 @@ export function createSubagentController(
         return result;
       }
       stored.run = { ...stored.run, status: "running" };
+      updateProductParticipant(productBroker, wrapper!.inner.sessionId, "running");
       manager.appendCustomEntry(SUBAGENT_STATUS_TYPE, { version: 1, status: "running" });
       request.onUpdate?.(stored.run);
       let result: SubagentRunInfo;
@@ -525,6 +699,8 @@ export function createSubagentController(
       } finally {
         request.signal?.removeEventListener("abort", handleParentAbort);
       }
+      stopPixelTelemetry(result.status === "completed" ? "completed" : result.status);
+      await persistProductTaskOutcome(productCoordinator, product?.taskId, result);
       manager.appendCustomEntry(SUBAGENT_RESULT_TYPE, {
         version: 1,
         status: result.status as "completed" | "failed" | "aborted",
@@ -533,14 +709,19 @@ export function createSubagentController(
         ...(result.error ? { error: result.error } : {}),
       });
       stored.run = result;
+      updateProductParticipant(productBroker, wrapper!.inner.sessionId, result.status === "completed" ? "complete" : "failed");
       request.onUpdate?.(result);
       getSubagentRuns().delete(request.sessionId);
       dependencies.invalidateSessionList();
       return result;
     };
-    const finishQueuedAbort = () => {
+    const finishQueuedAbort = async () => {
       if (stored.run.status !== "queued") return;
+      stopPixelTelemetry("aborted");
+      updateProductParticipant(productBroker, wrapper!.inner.sessionId, "failed");
       const result: SubagentRunInfo = { ...initialRun, status: "aborted", completedAt: new Date().toISOString() };
+      request.signal?.removeEventListener("abort", handleParentAbort);
+      await persistProductTaskOutcome(productCoordinator, product?.taskId, result);
       manager.appendCustomEntry(SUBAGENT_RESULT_TYPE, { version: 1, status: "aborted", completedAt: result.completedAt });
       stored.run = result;
       request.onUpdate?.(result);
@@ -555,7 +736,22 @@ export function createSubagentController(
       dependencies.invalidateSessionList();
     }, finishQueuedAbort);
     stored.cancelQueued = queued.cancel;
-    void queued.promise.then(resolveCompletion, (error) => resolveCompletion({ ...initialRun, status: "failed", completedAt: new Date().toISOString(), error: error instanceof Error ? error.message : String(error) }));
+    void queued.promise.then(resolveCompletion, async (error) => {
+      const result: SubagentRunInfo = {
+        ...initialRun,
+        status: "failed",
+        completedAt: new Date().toISOString(),
+        error: error instanceof Error ? error.message : String(error),
+      };
+      stopPixelTelemetry("failed");
+      await persistProductTaskOutcome(productCoordinator, product?.taskId, result);
+      stored.run = result;
+      updateProductParticipant(productBroker, wrapper!.inner.sessionId, "failed");
+      request.onUpdate?.(result);
+      getSubagentRuns().delete(request.sessionId);
+      dependencies.invalidateSessionList();
+      resolveCompletion(result);
+    });
     return { run: stored.run, completion };
   }
 

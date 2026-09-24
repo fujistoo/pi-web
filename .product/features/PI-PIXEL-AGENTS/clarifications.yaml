@@ -1,0 +1,24 @@
+version: 1
+feature: PI-PIXEL-AGENTS
+clarifications:
+  - question: >-
+      Does “Agents” mean pi-web’s session-level Agents panel/workspace (AgentSessionPanel/AgentWorkspace), rather than
+      Settings → Agents (AgentsConfig)?
+    options:
+      - 'Session-level Agents panel/workspace: show the live office alongside agent status/chats.'
+      - 'Settings → Agents: place the office inside the profile/settings editor.'
+      - Both, with the live office in the session panel and configuration remaining in Settings → Agents.
+    recommendation: >-
+      Use the session-level Agents panel/workspace for the live office; keep Settings → Agents focused on profile and
+      runtime configuration.
+    affectedRequirements:
+      - R2
+      - R3
+    blocking: true
+    id: CLAR-001
+    status: resolved
+    created_at: '2026-09-12T13:35:55.121Z'
+    version: 1
+    feature: PI-PIXEL-AGENTS
+    decision_id: DEC-002
+    resolved_at: '2026-09-12T13:39:55.033Z'

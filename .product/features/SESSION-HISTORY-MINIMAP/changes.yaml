@@ -1,0 +1,92 @@
+version: 1
+feature: SESSION-HISTORY-MINIMAP
+items:
+  - summary: >-
+      Added a lightweight full active-branch input index to session context and taught ChatMinimap to render unloaded
+      inputs and page to them on selection.
+    requirements:
+      - R1
+      - R2
+      - R3
+      - R4
+    files:
+      - lib/types.ts
+      - lib/session-reader.ts
+      - components/ChatMinimap.tsx
+      - components/ChatWindow.tsx
+      - hooks/useAgentSession.ts
+      - lib/session-reader.test.mjs
+    verification:
+      - TypeScript passed
+      - ESLint passed
+      - 'Full npm test passed: 1054 tests'
+      - git diff --check passed
+    id: CHG-001
+    recorded_at: '2026-09-12T13:04:53.106Z'
+    version: 1
+    feature: SESSION-HISTORY-MINIMAP
+  - summary: >-
+      Align the minimap interaction with the provided reference: keep a slim left rail and show one hovered-turn preview
+      card beside the rail instead of a centered list of every turn.
+    source: User-provided minimap reference image
+    impact: >-
+      The active-branch minimap still indexes every user input and preserves click/heading navigation. Hover previews
+      now render only the nearest turn, use a bounded rounded card positioned beside the rail and clamped to the
+      viewport, and keep the preview content lightweight.
+    files:
+      - components/ChatMinimap.tsx
+      - components/ChatMinimap.module.css
+      - components/ChatWindow.tsx
+      - components/ChatInput.tsx
+    id: CHG-002
+    recorded_at: '2026-09-12T14:44:03.510Z'
+    version: 1
+    feature: SESSION-HISTORY-MINIMAP
+  - summary: >-
+      Hardened the reference-style preview for desktop viewport edges and covered the left-rail/single-preview contract
+      with a focused test.
+    source: Implementation follow-up
+    impact: >-
+      The hover card measures its own bounds once per hovered turn, clamps to the viewport, and uses the existing hover
+      grace period. The preview remains one lightweight turn rather than a full history list.
+    files:
+      - components/ChatMinimap.tsx
+      - components/ChatMinimap.module.css
+      - components/ChatMinimap.test.mjs
+    id: CHG-003
+    recorded_at: '2026-09-12T14:47:19.951Z'
+    version: 1
+    feature: SESSION-HISTORY-MINIMAP
+  - summary: >-
+      Reverted the reference-style minimap presentation to the prior centered, scrollable preview implementation at the
+      user's request.
+    source: User correction
+    impact: >-
+      The active-branch minimap indexing and navigation behavior remain unchanged; only the left-rail/single-preview
+      visual treatment and associated spacing changes were removed.
+    files:
+      - components/ChatMinimap.tsx
+      - components/ChatMinimap.module.css
+      - components/ChatWindow.tsx
+      - components/ChatInput.tsx
+      - components/ChatMinimap.test.mjs
+      - components/ChatWindow.notices.test.mjs
+    id: CHG-004
+    recorded_at: '2026-09-12T14:58:41.486Z'
+    version: 1
+    feature: SESSION-HISTORY-MINIMAP
+  - summary: Restored the upstream minimap presentation used before the centered-preview request.
+    source: User correction
+    impact: >-
+      The minimap is again the upstream right-side rail with the adjacent left preview, original dot markers, upstream
+      sizing, and upstream hover timing. The later full active-branch input index remains enabled so pre-compaction
+      navigation is preserved.
+    files:
+      - components/ChatMinimap.tsx
+      - components/ChatMinimap.module.css
+      - components/ChatWindow.tsx
+      - components/ChatInput.tsx
+    id: CHG-005
+    recorded_at: '2026-09-12T15:06:55.709Z'
+    version: 1
+    feature: SESSION-HISTORY-MINIMAP
