@@ -144,7 +144,9 @@ export function AppShell() {
     () => getSessionFamily(sessionsWithSelection, selectedSession?.id),
     [selectedSession?.id, sessionsWithSelection],
   );
-  const hasSubagentSessions = Boolean(activeSessionFamily?.subagents.length);
+  // The Agents switcher is always available; its badge reads 0 for a session
+  // with no sub-agents so the entry point never moves between sessions.
+  const subagentCount = activeSessionFamily?.subagents.length ?? 0;
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
   const handleRunningSessionIdsChange = useCallback((ids: Set<string>) => {
     setRunningSessionIds((previous) => {
@@ -335,12 +337,6 @@ export function AppShell() {
       setActiveTopPanel((panel) => panel === "branches" ? null : panel);
     }
   }, [sessionHasBranches]);
-
-  useEffect(() => {
-    if (!hasSubagentSessions) {
-      setActiveTopPanel((panel) => panel === "agents" ? null : panel);
-    }
-  }, [hasSubagentSessions]);
 
   useEffect(() => {
     if (rightPanelFullWidth) setActiveTopPanel(null);
@@ -1444,11 +1440,10 @@ export function AppShell() {
             </button>
           );
         })()}
-        {hasSubagentSessions && (
-          <button
-            type="button"
-            onClick={() => toggleTopPanel("agents", mobile)}
-            title={translate("agentSwitcher.title")}
+        <button
+          type="button"
+          onClick={() => toggleTopPanel("agents", mobile)}
+          title={translate("agentSwitcher.title")}
             aria-label={translate("agentSwitcher.title")}
             aria-pressed={activeTopPanel === "agents"}
             style={{
@@ -1479,10 +1474,9 @@ export function AppShell() {
                 ...(mobile ? { position: "absolute", top: 2, right: 2, minWidth: 13, height: 13, padding: "0 3px", fontSize: 9 } : {}),
               }}
             >
-              {activeSessionFamily!.subagents.length}
+              {subagentCount}
             </span>
           </button>
-        )}
         {sessionHasBranches && (mobile ? (
           <button
             type="button"
