@@ -58,6 +58,21 @@ if (command === "update") {
   }
 }
 
+if (command === "sync-upstream") {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { syncUpstream } = require("./sync-upstream");
+    fs.writeSync(process.stdout.fd, `${syncUpstream(sourceDir ?? process.cwd()).message}\n`);
+    process.exit(0);
+  } catch (error) {
+    fs.writeSync(
+      process.stderr.fd,
+      `${error instanceof Error ? error.message : String(error)}\n`,
+    );
+    process.exit(1);
+  }
+}
+
 if (command !== "foreground") {
   try {
     // Resolve the running script so npx, symlinked global installs, and paths

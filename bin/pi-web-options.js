@@ -12,7 +12,13 @@ const CLI_OPTIONS = {
   help: { type: "boolean", short: "h" },
 };
 
-const COMMANDS = new Set(["foreground", "start", "stop", "status", "restart", "reload", "update"]);
+const COMMANDS = new Set(["foreground", "start", "stop", "status", "restart", "reload", "update", "sync-upstream"]);
+
+// Positional count each command accepts, including the command itself.
+const COMMAND_ARITY = {
+  update: { min: 2, max: 2 },
+  "sync-upstream": { min: 1, max: 2 },
+};
 
 function isEnabled(value) {
   return typeof value === "string" && TRUE_VALUES.has(value.trim().toLowerCase());
@@ -42,6 +48,7 @@ Commands:
   status                     Report background service status (macOS only)
   restart, reload            Restart the background service (macOS only)
   update <directory>         Build and globally install from a source directory
+  sync-upstream [directory]  Fetch and merge upstream/main into the current branch (defaults to the current directory)
 
 Options:
   -p, --port <port>          Server port (default: 30141, or PORT)
@@ -80,7 +87,8 @@ function parseCliArguments(args = process.argv.slice(2), env = process.env) {
   if (values.help) return { command: "foreground", help: true };
   const command = positionals[0] ?? "foreground";
   const sourceDir = positionals[1];
-  if (!COMMANDS.has(command) || (command === "update" ? positionals.length !== 2 : positionals.length > 1)) {
+  const arity = COMMAND_ARITY[command] ?? { min: 1, max: 1 };
+  if (!COMMANDS.has(command) || positionals.length < arity.min || positionals.length > arity.max) {
     throw new Error(
       `Unexpected argument(s): ${positionals.join(" ")}\nUse --help to see available options.`,
     );
