@@ -375,6 +375,14 @@ export async function startAgentWorkerServer(options: WorkerOptions = {}): Promi
           return;
         }
         if (request.method === "POST") {
+          // A subagent this worker does not own must answer 404, exactly like
+          // GET above, so the caller falls back to its own local registry.
+          // Without this an unknown id surfaced as a 500 "Subagent is not
+          // running" and the owning process never received the steer or abort.
+          if (!await getSubagentRun(subagentId)) {
+            sendJson(response, 404, { error: "Subagent not found" });
+            return;
+          }
           const body = await readBody(request);
           if (body.action === "steer") {
             if (typeof body.message !== "string" || !body.message.trim()) throw new Error("message required");
